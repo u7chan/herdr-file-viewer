@@ -1,5 +1,9 @@
 # Herdr File Viewer
 
+[![CI](https://github.com/u7chan/herdr-file-viewer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/u7chan/herdr-file-viewer/actions/workflows/ci.yml)
+[![Go](https://badgen.net/static/Go/1.25%2B/00ADD8?icon=go)](https://go.dev/)
+[![Herdr](https://badgen.net/static/Herdr/%3E%3D0.8.2/6E56CF)](https://herdr.dev/)
+
 The project foundation for a read-only file viewer plugin for Herdr. This
 stage intentionally contains only the startup shell: it resolves the launch
 root once, displays it, and exits cleanly. Filesystem scanning and navigation

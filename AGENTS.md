@@ -1,43 +1,47 @@
 # Development rules
 
-## Architecture
+## Tech Stack
 
-- `cmd/herdr-file-viewer` is the composition root. It acquires the Herdr
-  launch context, assembles the model, starts Bubble Tea, and handles the
-  top-level error.
-- `internal/herdr` owns access to Herdr environment variables and the
-  `HERDR_PLUGIN_CONTEXT_JSON` snapshot. The rest of the application must not
-  read environment variables directly.
-- `internal/app` owns the Bubble Tea model and rendering. `View` is pure: it
-  does not perform filesystem I/O or mutate state.
-- The intended future dependency direction is `cmd -> app -> browser ->
-  filesystem`, with `cmd -> herdr` for launch-context resolution. Add a
-  package only when the corresponding feature is implemented; do not create
-  empty future packages or add a DI framework, Bubbles, or a generic SDK.
+- Go 1.25 or newer
+- Bubble Tea v2
+- Lip Gloss v2
+- Herdr Plugin v1
 
-## Current foundation scope
+## Why / What / Constraints First
 
-- This foundation resolves a root once at startup and renders a status shell.
-  Filesystem scanning, tree state, navigation, clipboard actions, and polling
-  belong to later Sub-Issues.
-- Bubble Tea commands are the boundary for future asynchronous I/O. Do not
-  start a polling loop or put I/O in `View`.
-- `q` and `Ctrl+C` quit, and the Bubble Tea v2 view declares the alternate
-  screen and cell-motion mouse mode so the framework can restore terminal
-  state on exit.
+Before implementation, briefly clarify when necessary:
 
-## Testing and performance
+- Why: why the change is needed
+- What: what behavior or outcome is required
+- Constraints: which boundaries must remain intact
 
-- Keep deterministic tests for context precedence, invalid or missing context,
-  non-directory fallback, process-cwd fallback, quit messages, and zero-size
-  window messages.
-- The CI quality gate is `gofmt` diff checking, `golangci-lint run`, `go vet
-  ./...`, `go test ./...`, and a `CGO_ENABLED=0` static build.
-- Prefer deterministic invariants and bounded state over timing thresholds.
-  Performance measurement and filesystem-call invariants will be added with
-  the features that need them; do not add fixed-duration CI gates.
+Keep How in the design and code rather than this document.
 
-## Pull requests
+## Architecture Policy
 
-- Before creating a pull request, read and follow [`docs/pull-request.md`](docs/pull-request.md).
-  It is the required report template for this repository.
+- `cmd/herdr-file-viewer` is the composition root.
+- Herdr-specific environment access belongs in `internal/herdr`.
+- UI state and rendering belong in `internal/app`; `View` must remain pure.
+- Preserve the dependency direction `cmd -> app -> browser -> filesystem`, with `cmd -> herdr` for launch context resolution.
+- Add packages only when required by implemented behavior. Avoid empty future packages, DI frameworks, generic SDKs, and speculative abstractions.
+
+## Test Policy
+
+- Treat tests as executable specifications.
+- Prefer deterministic invariants over timing-based assertions.
+- Required formatting, lint, vet, test, and static-build checks must pass.
+
+## Comment Policy
+
+- Avoid comments that merely restate the code.
+- Document only non-obvious intent, constraints, and safety assumptions.
+- Use `TODO:` or `TBD:` for explicitly deferred work.
+
+## Review Policy
+
+- Write review findings and review results in Japanese.
+
+## References
+
+- [`docs/pull-request.md`](docs/pull-request.md) — required Draft PR structure, verification record, and orchestration-team reporting.
+- [`README.md`](README.md) — build, link, launch, and verification commands.
