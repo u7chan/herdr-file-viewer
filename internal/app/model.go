@@ -24,7 +24,6 @@ const (
 // Model owns UI state and delegates all filesystem work to commands that read
 // the browser tree outside Update and View.
 type Model struct {
-	root    string
 	warning string
 
 	tree        *browser.Tree
@@ -50,7 +49,6 @@ func NewModel(root, warning string, fileSystems ...filesystem.FileSystem) *Model
 	}
 
 	m := &Model{
-		root:    root,
 		warning: sanitizeDisplay(warning),
 		pending: make(map[string]struct{}),
 	}

@@ -30,6 +30,73 @@ func TestModelQuitsOnQAndCtrlC(t *testing.T) {
 	}
 }
 
+func TestPendingLoadProcessesQuitAndCtrlC(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, nil)
+
+	for _, key := range []tea.KeyPressMsg{
+		{Code: 'q', Text: "q"},
+		{Code: 'c', Mod: tea.ModCtrl},
+	} {
+		model := NewModel(root, "", fake)
+		load := model.Init()
+		if load == nil || !model.loading {
+			t.Fatalf("Init() load = %v, loading = %v; want pending load", load != nil, model.loading)
+		}
+
+		_, quit := model.Update(key)
+		if quit == nil {
+			t.Fatalf("Update(%q) during pending load returned nil command", key.String())
+		}
+		if _, ok := quit().(tea.QuitMsg); !ok {
+			t.Fatalf("Update(%q) command = %T, want tea.QuitMsg", key.String(), quit())
+		}
+		if got := fake.calls(); len(got) != 0 {
+			t.Fatalf("Update(%q) started filesystem work = %v, want command still pending", key.String(), got)
+		}
+	}
+}
+
+func TestPendingLoadProcessesResizeAndPreservesViewport(t *testing.T) {
+	root := t.TempDir()
+	directoryPath := filepath.Join(root, "b-directory")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{
+		{Name: "a-directory", Mode: fs.ModeDir},
+		{Name: "b-directory", Mode: fs.ModeDir},
+	})
+	fake.set(directoryPath, nil)
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 4})
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+
+	selectedBefore := model.selected
+	offsetBefore := model.offset
+	if selectedBefore != 2 || offsetBefore != 1 {
+		t.Fatalf("viewport before pending load = selected %d, offset %d; want 2, 1", selectedBefore, offsetBefore)
+	}
+	load := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	if load == nil || !model.loading {
+		t.Fatalf("right load = %v, loading = %v; want pending load", load != nil, model.loading)
+	}
+
+	if _, next := model.Update(tea.WindowSizeMsg{Width: 80, Height: 4}); next != nil {
+		t.Fatalf("resize during pending load returned command %v, want nil", next)
+	}
+	if model.width != 80 || model.height != 4 {
+		t.Fatalf("resize dimensions = %d x %d, want 80 x 4", model.width, model.height)
+	}
+	if model.selected != selectedBefore || model.offset != offsetBefore {
+		t.Fatalf("viewport after pending resize = selected %d, offset %d; want %d, %d", model.selected, model.offset, selectedBefore, offsetBefore)
+	}
+	if got := fake.calls(); len(got) != 1 || got[0] != root {
+		t.Fatalf("resize during pending load changed filesystem calls = %v, want only initial load", got)
+	}
+}
+
 func TestInitStartsAsyncRootLoadAndAppliesResultInUpdate(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeFileSystem()
