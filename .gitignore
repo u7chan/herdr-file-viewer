@@ -1,0 +1,10 @@
+/bin/
+/coverage.out
+/coverage.html
+/herdr-file-viewer
+/*.test
+*.coverprofile
+*.prof
+*.tmp
+*.temp
+tmp/
