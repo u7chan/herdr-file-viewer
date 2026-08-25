@@ -39,5 +39,8 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Race test
+        run: go test -race ./...
+
       - name: Static build
         run: CGO_ENABLED=0 go build -trimpath ./cmd/herdr-file-viewer
