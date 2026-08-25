@@ -4,10 +4,9 @@
 [![Go](https://badgen.net/static/Go/1.25%2B/00ADD8?icon=go)](https://go.dev/)
 [![Herdr](https://badgen.net/static/Herdr/%3E%3D0.8.2/6E56CF)](https://herdr.dev/)
 
-The project foundation for a read-only file viewer plugin for Herdr. This
-stage intentionally contains only the startup shell: it resolves the launch
-root once, displays it, and exits cleanly. Filesystem scanning and navigation
-are handled by later Sub-Issues.
+The read-only file viewer plugin for Herdr resolves its launch root once and
+shows a lazy, keyboard-driven filesystem tree. Directory reads run
+asynchronously so navigation and resize remain responsive.
 
 ## Requirements
 
@@ -36,8 +35,9 @@ herdr plugin pane open \
   --no-focus
 ```
 
-Press `q` or `Ctrl+C` to quit. Bubble Tea restores the alternate screen,
-mouse, cursor, and other terminal state when the pane exits.
+Use the arrow keys to select and expand/collapse directories. Press `q` or
+`Ctrl+C` to quit. Bubble Tea restores the alternate screen, cursor, and other
+terminal state when the pane exits.
 
 To remove the local link after testing:
 
@@ -52,5 +52,6 @@ test -z "$(gofmt -l $(git ls-files '*.go'))"
 golangci-lint run
 go vet ./...
 go test ./...
+go test -race ./...
 CGO_ENABLED=0 go build -trimpath ./cmd/herdr-file-viewer
 ```

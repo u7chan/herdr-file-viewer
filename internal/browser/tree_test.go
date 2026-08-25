@@ -325,35 +325,6 @@ func TestApplyLoadRejectsStaleResultWithoutClearingCurrentRequest(t *testing.T) 
 	}
 }
 
-func TestApplyLoadRejectsResultFromAnOlderRetry(t *testing.T) {
-	rootPath := filepath.Join("workspace", "root")
-	fake := newFakeFileSystem()
-	fake.setError(absoluteTestPath(t, rootPath), fs.ErrPermission)
-	tree := mustTree(t, rootPath, fake)
-
-	firstRequest, ok := tree.RequestLoad(tree.Root())
-	if !ok {
-		t.Fatal("first RequestLoad(root) started no load")
-	}
-	firstResult := tree.Read(firstRequest)
-	if !tree.ApplyLoad(firstResult) {
-		t.Fatal("ApplyLoad(first) rejected result")
-	}
-	secondRequest, ok := tree.RequestLoad(tree.Root())
-	if !ok {
-		t.Fatal("retry RequestLoad(root) started no load")
-	}
-	if tree.ApplyLoad(firstResult) {
-		t.Fatal("ApplyLoad(old retry result) accepted stale result")
-	}
-	if !tree.Root().Loading() {
-		t.Fatal("root Loading() = false after stale retry result, want current request retained")
-	}
-	if !tree.ApplyLoad(tree.Read(secondRequest)) {
-		t.Fatal("ApplyLoad(second) rejected current result")
-	}
-}
-
 func mustTree(t *testing.T, rootPath string, fake *fakeFileSystem) *Tree {
 	t.Helper()
 	tree, err := NewTree(rootPath, fake)

@@ -22,7 +22,6 @@ type Node struct {
 	expanded  bool
 	loaded    bool
 	loading   bool
-	loadID    uint64
 	loadError error
 }
 

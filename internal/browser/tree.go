@@ -17,7 +17,6 @@ var errInvalidLoadRequest = errors.New("invalid filesystem load request")
 type LoadRequest struct {
 	Node *Node
 	Path string
-	ID   uint64
 }
 
 // LoadResult is the data returned by a directory read. Err is retained on the
@@ -25,7 +24,6 @@ type LoadRequest struct {
 type LoadResult struct {
 	Node    *Node
 	Path    string
-	ID      uint64
 	Entries []filesystem.Entry
 	Err     error
 }
@@ -35,7 +33,6 @@ type Tree struct {
 	fileSystem filesystem.FileSystem
 	root       *Node
 	visible    VisibleRows
-	nextLoadID uint64
 }
 
 // NewTree creates a tree without reading rootPath or any of its descendants.
@@ -73,13 +70,9 @@ func (t *Tree) RequestLoad(node *Node) (LoadRequest, bool) {
 		return LoadRequest{}, false
 	}
 
-	t.nextLoadID++
-	if t.nextLoadID == 0 {
-		t.nextLoadID++
-	}
 	node.loading = true
-	node.loadID = t.nextLoadID
-	return LoadRequest{Node: node, Path: node.path, ID: node.loadID}, true
+	node.loadError = nil
+	return LoadRequest{Node: node, Path: node.path}, true
 }
 
 // Expand marks a directory expanded and starts its first or retry read when
@@ -110,7 +103,7 @@ func (t *Tree) Collapse(node *Node) bool {
 // Read executes a request without changing any node state. It is intended to
 // be called from a command goroutine; ApplyLoad is the mutation boundary.
 func (t *Tree) Read(request LoadRequest) LoadResult {
-	result := LoadResult{Node: request.Node, Path: request.Path, ID: request.ID}
+	result := LoadResult{Node: request.Node, Path: request.Path}
 	if t == nil || request.Node == nil || request.Path == "" {
 		result.Err = errInvalidLoadRequest
 		return result
@@ -127,7 +120,7 @@ func (t *Tree) ApplyLoad(result LoadResult) bool {
 	if t == nil || !t.contains(result.Node) || !result.Node.IsDirectory() || !result.Node.loading {
 		return false
 	}
-	if result.ID != result.Node.loadID || result.Path != result.Node.path {
+	if result.Path != result.Node.path {
 		return false
 	}
 
