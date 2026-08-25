@@ -92,6 +92,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "space", "\u3000":
+			return m, m.copySelection()
 		case "up":
 			m.moveSelection(-1)
 		case "down":
@@ -103,6 +105,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			// Enter intentionally has no action in this read-only tree.
 		}
+	case tea.MouseClickMsg:
+		return m, m.handleMouseClick(msg)
 	case tea.InterruptMsg:
 		return m, tea.Quit
 	case tea.WindowSizeMsg:
@@ -119,7 +123,7 @@ func (m *Model) View() tea.View {
 	if m == nil {
 		view := tea.NewView("")
 		view.AltScreen = true
-		view.MouseMode = tea.MouseModeNone
+		view.MouseMode = tea.MouseModeCellMotion
 		return view
 	}
 
@@ -137,8 +141,67 @@ func (m *Model) View() tea.View {
 
 	view := tea.NewView(strings.Join(lines, "\n"))
 	view.AltScreen = true
-	view.MouseMode = tea.MouseModeNone
+	view.MouseMode = tea.MouseModeCellMotion
 	return view
+}
+
+func (m *Model) copySelection() tea.Cmd {
+	node := m.selectedNode()
+	if node == nil {
+		return nil
+	}
+
+	path := node.Path()
+	m.status = "copied: " + sanitizeDisplay(path)
+	return tea.SetClipboard(path)
+}
+
+func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
+	if msg.Button != tea.MouseLeft {
+		return nil
+	}
+
+	index, ok := m.rowIndexAtY(msg.Y)
+	if !ok {
+		return nil
+	}
+
+	m.selected = index
+	node := m.selectedNode()
+	if node == nil || node.Parent() == nil || !node.IsDirectory() {
+		return nil
+	}
+
+	if node.Expanded() {
+		if m.tree.Collapse(node) {
+			m.refreshVisibleRows()
+		}
+		return nil
+	}
+
+	request, expanded := m.tree.Expand(node)
+	m.refreshVisibleRows()
+	if !expanded {
+		return nil
+	}
+	return m.startLoad(request)
+}
+
+func (m *Model) rowIndexAtY(y int) (int, bool) {
+	if y < 0 {
+		return 0, false
+	}
+
+	headerHeight, treeHeight, _ := layoutHeights(m.height)
+	if treeHeight <= 0 || y < headerHeight || y >= headerHeight+treeHeight {
+		return 0, false
+	}
+
+	index := m.offset + y - headerHeight
+	if index < 0 || index >= len(m.visibleRows) {
+		return 0, false
+	}
+	return index, true
 }
 
 func (m *Model) startLoad(request browser.LoadRequest) tea.Cmd {

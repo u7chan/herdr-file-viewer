@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -277,6 +278,209 @@ func TestEnterIsNoOpAndStaleResultsAreIgnored(t *testing.T) {
 	}
 }
 
+func TestSpaceAndFullWidthSpaceCopyOnlyTheSelectedAbsolutePath(t *testing.T) {
+	root := t.TempDir()
+	directoryPath := filepath.Join(root, "directory")
+	filePath := filepath.Join(root, "file")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{
+		{Name: "directory", Mode: fs.ModeDir},
+		{Name: "file", Mode: 0},
+	})
+	fake.set(directoryPath, nil)
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+
+	keys := []tea.KeyPressMsg{
+		{Code: tea.KeySpace},
+		{Code: '　', Text: "　"},
+	}
+	for _, key := range keys {
+		cmd := model.UpdateKey(key)
+		if got := clipboardContent(t, cmd); got != root {
+			t.Fatalf("copy key %q copied %q, want root %q", key.String(), got, root)
+		}
+		if model.status != "copied: "+root {
+			t.Fatalf("copy key %q status = %q, want %q", key.String(), model.status, "copied: "+root)
+		}
+	}
+
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if got := clipboardContent(t, model.UpdateKey(tea.KeyPressMsg{Code: tea.KeySpace})); got != directoryPath {
+		t.Fatalf("directory copy = %q, want %q", got, directoryPath)
+	}
+	if model.status != "copied: "+directoryPath {
+		t.Fatalf("directory copy status = %q, want %q", model.status, "copied: "+directoryPath)
+	}
+
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if got := clipboardContent(t, model.UpdateKey(tea.KeyPressMsg{Code: tea.KeySpace})); got != filePath {
+		t.Fatalf("file copy = %q, want %q", got, filePath)
+	}
+	if model.status != "copied: "+filePath {
+		t.Fatalf("file copy status = %q, want %q", model.status, "copied: "+filePath)
+	}
+}
+
+func TestMouseClickMapsVisibleRowsUsingHeaderAndViewportOffset(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	entries := make([]filesystem.Entry, 0, 6)
+	for index := 0; index < 6; index++ {
+		entries = append(entries, filesystem.Entry{Name: string(rune('a' + index)), Mode: 0})
+	}
+	fake.set(root, entries)
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 4})
+	for index := 0; index < 3; index++ {
+		model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	if model.selected != 3 || model.offset != 2 {
+		t.Fatalf("viewport before click = selected %d, offset %d; want 3, 2", model.selected, model.offset)
+	}
+
+	if _, cmd := model.Update(tea.MouseClickMsg{X: 0, Y: 1, Button: tea.MouseLeft}); cmd != nil {
+		t.Fatalf("visible-row click returned command %v, want nil", cmd)
+	}
+	if model.selected != 2 || model.selectedNode().Name() != "b" {
+		t.Fatalf("offset row click = selected %d (%q), want row 2 (b)", model.selected, model.selectedNode().Name())
+	}
+
+	selected, offset, status := model.selected, model.offset, model.status
+	for _, y := range []int{-1, 0, 3, 4} {
+		if _, cmd := model.Update(tea.MouseClickMsg{X: 0, Y: y, Button: tea.MouseLeft}); cmd != nil {
+			t.Fatalf("out-of-tree click at y=%d returned command %v, want nil", y, cmd)
+		}
+		if model.selected != selected || model.offset != offset || model.status != status {
+			t.Fatalf("out-of-tree click at y=%d changed state: selected %d/%d offset %d/%d status %q/%q", y, model.selected, selected, model.offset, offset, model.status, status)
+		}
+	}
+}
+
+func TestMouseDirectoryClickExpandsCollapsesAndLoadsAsynchronously(t *testing.T) {
+	root := t.TempDir()
+	directoryPath := filepath.Join(root, "directory")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "directory", Mode: fs.ModeDir}})
+	fake.set(directoryPath, []filesystem.Entry{{Name: "child", Mode: 0}})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
+
+	cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 2, Button: tea.MouseLeft})
+	if cmd == nil {
+		t.Fatal("directory click returned nil command, want async load")
+	}
+	directory := model.tree.Root().Children()[0]
+	if model.selected != 1 || !directory.Expanded() || !directory.Loading() {
+		t.Fatalf("directory click state = selected %d, expanded %v, loading %v; want 1, true, true", model.selected, directory.Expanded(), directory.Loading())
+	}
+	if got := fake.calls(); len(got) != 1 || got[0] != root {
+		t.Fatalf("directory click performed filesystem calls %v before command, want root only", got)
+	}
+
+	result, ok := cmd().(browser.LoadResult)
+	if !ok {
+		t.Fatalf("directory click command message = %T, want browser.LoadResult", cmd())
+	}
+	model.Update(result)
+	if len(model.visibleRows) != 3 || !directory.Loaded() || directory.Loading() {
+		t.Fatalf("loaded directory state = rows %d, loaded %v, loading %v; want 3, true, false", len(model.visibleRows), directory.Loaded(), directory.Loading())
+	}
+
+	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 2, Button: tea.MouseLeft}); cmd != nil {
+		t.Fatalf("expanded directory click returned command %v, want nil collapse", cmd)
+	}
+	if len(model.visibleRows) != 2 || directory.Expanded() || model.selected != 1 {
+		t.Fatalf("directory collapse state = rows %d, expanded %v, selected %d; want 2, false, 1", len(model.visibleRows), directory.Expanded(), model.selected)
+	}
+
+	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 2, Button: tea.MouseLeft}); cmd != nil {
+		t.Fatalf("loaded directory re-expand returned command %v, want nil", cmd)
+	}
+	if len(model.visibleRows) != 3 || !directory.Expanded() {
+		t.Fatalf("directory re-expand state = rows %d, expanded %v; want 3, true", len(model.visibleRows), directory.Expanded())
+	}
+	if got := fake.calls(); len(got) != 2 {
+		t.Fatalf("directory click filesystem calls = %v, want root and directory only", got)
+	}
+}
+
+func TestMouseClickSelectsRootFileAndSymlinkWithoutCopyOrPreview(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{
+		{Name: "directory", Mode: fs.ModeDir},
+		{Name: "file", Mode: 0},
+		{Name: "link", Mode: fs.ModeSymlink},
+	})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
+	calls := len(fake.calls())
+
+	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 1, Button: tea.MouseLeft}); cmd != nil {
+		t.Fatalf("root click returned command %v, want nil", cmd)
+	}
+	if model.selected != 0 || !model.tree.Root().Expanded() || len(model.visibleRows) != 4 {
+		t.Fatalf("root click state = selected %d, expanded %v, rows %d; want 0, true, 4", model.selected, model.tree.Root().Expanded(), len(model.visibleRows))
+	}
+
+	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 3, Button: tea.MouseLeft}); cmd != nil {
+		t.Fatalf("file click returned command %v, want nil", cmd)
+	}
+	if model.selected != 2 || model.selectedNode().Name() != "file" || model.status != readyStatus {
+		t.Fatalf("file click state = selected %d (%q), status %q; want file row and %q", model.selected, model.selectedNode().Name(), model.status, readyStatus)
+	}
+
+	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 4, Button: tea.MouseLeft}); cmd != nil {
+		t.Fatalf("symlink click returned command %v, want nil", cmd)
+	}
+	if model.selected != 3 || model.selectedNode().Name() != "link" || model.status != readyStatus {
+		t.Fatalf("symlink click state = selected %d (%q), status %q; want link row and %q", model.selected, model.selectedNode().Name(), model.status, readyStatus)
+	}
+	if len(fake.calls()) != calls {
+		t.Fatalf("selection-only clicks changed filesystem calls = %v, want %d calls", fake.calls(), calls)
+	}
+}
+
+func TestMouseIgnoresNonLeftEventsAndViewDoesNotRequestAllMotion(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "directory", Mode: fs.ModeDir}})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
+	selected, offset, status, calls := model.selected, model.offset, model.status, len(fake.calls())
+
+	for _, msg := range []tea.Msg{
+		tea.MouseClickMsg{X: 0, Y: 2, Button: tea.MouseRight},
+		tea.MouseClickMsg{X: 0, Y: 2, Button: tea.MouseMiddle},
+		tea.MouseWheelMsg{X: 0, Y: 2, Button: tea.MouseWheelDown},
+		tea.MouseReleaseMsg{X: 0, Y: 2, Button: tea.MouseLeft},
+		tea.MouseMotionMsg{X: 0, Y: 2, Button: tea.MouseLeft},
+	} {
+		if _, cmd := model.Update(msg); cmd != nil {
+			t.Fatalf("ignored mouse event %T returned command %v, want nil", msg, cmd)
+		}
+	}
+	if model.selected != selected || model.offset != offset || model.status != status || len(fake.calls()) != calls {
+		t.Fatalf("ignored mouse events changed state: selected %d/%d offset %d/%d status %q/%q calls %d/%d", model.selected, selected, model.offset, offset, model.status, status, len(fake.calls()), calls)
+	}
+
+	view := model.View()
+	if view.MouseMode != tea.MouseModeCellMotion {
+		t.Fatalf("view mouse mode = %v, want CellMotion", view.MouseMode)
+	}
+	if view.MouseMode == tea.MouseModeAllMotion {
+		t.Fatal("view unexpectedly requested All Motion")
+	}
+	if view.OnMouse != nil {
+		t.Fatal("view.OnMouse is set, want Update-based mouse handling")
+	}
+}
+
 func TestViewportFollowsSelectionAndNarrowOrZeroWindowsAreSafe(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeFileSystem()
@@ -302,7 +506,7 @@ func TestViewportFollowsSelectionAndNarrowOrZeroWindowsAreSafe(t *testing.T) {
 	_ = model.View()
 	model.Update(tea.WindowSizeMsg{Width: 0, Height: 0})
 	view := model.View()
-	if !view.AltScreen || view.MouseMode != tea.MouseModeNone {
+	if !view.AltScreen || view.MouseMode != tea.MouseModeCellMotion {
 		t.Fatalf("zero-size view flags = AltScreen %v, MouseMode %v", view.AltScreen, view.MouseMode)
 	}
 	model.Update(tea.WindowSizeMsg{Width: -1, Height: -2})
@@ -336,6 +540,27 @@ func TestTerminalSafeSanitizationCoversDerivedStrings(t *testing.T) {
 func (m *Model) UpdateKey(key tea.KeyPressMsg) tea.Cmd {
 	_, cmd := m.Update(key)
 	return cmd
+}
+
+func (m *Model) UpdateMouse(mouse tea.MouseClickMsg) tea.Cmd {
+	_, cmd := m.Update(mouse)
+	return cmd
+}
+
+func clipboardContent(t *testing.T, cmd tea.Cmd) string {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("copy returned nil command")
+	}
+	message := cmd()
+	if message == nil {
+		t.Fatal("copy command returned nil message")
+	}
+	value := reflect.ValueOf(message)
+	if value.Kind() != reflect.String {
+		t.Fatalf("copy command message = %T, want string-backed clipboard message", message)
+	}
+	return value.String()
 }
 
 func completeInitialLoad(t *testing.T, model *Model) {
