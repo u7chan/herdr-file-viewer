@@ -1,0 +1,11 @@
+id = "u7chan.file-viewer"
+name = "Herdr File Viewer"
+version = "0.1.0"
+min_herdr_version = "0.8.2"
+platforms = ["linux"]
+
+[[panes]]
+id = "files"
+title = "Files"
+placement = "split"
+command = ["./bin/herdr-file-viewer"]
