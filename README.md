@@ -59,6 +59,13 @@ herdr plugin pane open \
   --no-focus
 ```
 
+The manifest also provides an Action for opening the same pane from the
+current Herdr context:
+
+```bash
+herdr plugin action invoke u7chan.file-viewer.open-file-viewer
+```
+
 The launch root is the `focused_pane_cwd` snapshot captured at startup. If the
 Herdr context is missing, invalid, or points to an unavailable directory, the
 viewer reports a warning and falls back to the workspace or process cwd.
@@ -87,6 +94,8 @@ herdr plugin unlink u7chan.file-viewer
 
 The complete WSL2/Herdr smoke record and the non-gating performance
 measurements are in [`docs/issue-6-verification.md`](docs/issue-6-verification.md).
+The manifest Action/link/pane smoke record is in
+[`docs/issue-21-verification.md`](docs/issue-21-verification.md).
 
 ## Verification
 
