@@ -9,3 +9,16 @@ id = "files"
 title = "Files"
 placement = "split"
 command = ["./bin/herdr-file-viewer"]
+
+[[actions]]
+id = "open-file-viewer"
+title = "Open file viewer"
+description = "Open the file viewer in a right split beside the current pane."
+command = [
+  "herdr", "plugin", "pane", "open",
+  "--plugin", "u7chan.file-viewer",
+  "--entrypoint", "files",
+  "--placement", "split",
+  "--direction", "right",
+  "--focus",
+]
