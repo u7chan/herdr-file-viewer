@@ -30,6 +30,24 @@ func TestResolveRootUsesFocusedPaneBeforeWorkspaceAndProcess(t *testing.T) {
 	}
 }
 
+func TestResolveRootResolvesRelativeContextAgainstProcessCWD(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	focused := filepath.Join(dir, "focused")
+	mustMkdir(t, focused)
+
+	got, err := ResolveRootAt(dir, lookup(map[string]string{
+		contextJSONEnv: `{"focused_pane_cwd":"focused"}`,
+	}))
+	if err != nil {
+		t.Fatalf("ResolveRootAt() error = %v", err)
+	}
+	if got.Path != focused || got.Source != FocusedPaneRoot {
+		t.Fatalf("ResolveRootAt() = %#v, want focused root %q", got, focused)
+	}
+}
+
 func TestResolveRootFallsBackFromNonDirectoryToWorkspace(t *testing.T) {
 	t.Parallel()
 

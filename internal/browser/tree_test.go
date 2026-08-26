@@ -31,6 +31,25 @@ func TestNewTreeDoesNotReadRecursively(t *testing.T) {
 	}
 }
 
+func TestTreeReadRejectsInvalidRequestWithoutFilesystemAccess(t *testing.T) {
+	fake := newFakeFileSystem()
+	tree := mustTree(t, filepath.Join("workspace", "root"), fake)
+
+	result := tree.Read(LoadRequest{})
+	if !errors.Is(result.Err, errInvalidLoadRequest) {
+		t.Fatalf("Read(invalid) error = %v, want %v", result.Err, errInvalidLoadRequest)
+	}
+	if got := fake.calls(); len(got) != 0 {
+		t.Fatalf("Read(invalid) filesystem calls = %v, want none", got)
+	}
+
+	invalidTree := &Tree{}
+	result = invalidTree.Read(LoadRequest{Path: "/tmp"})
+	if !errors.Is(result.Err, errInvalidLoadRequest) {
+		t.Fatalf("Read(nil filesystem) error = %v, want %v", result.Err, errInvalidLoadRequest)
+	}
+}
+
 func TestTreeLoadsDirectoriesLazilyAndSortsHiddenEntries(t *testing.T) {
 	rootPath := filepath.Join("workspace", "root")
 	fake := newFakeFileSystem()

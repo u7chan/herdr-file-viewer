@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/u7chan/herdr-file-viewer/internal/browser"
@@ -188,21 +189,25 @@ func TestKeyboardNavigationHasBoundariesAndDoesNotReadFilesystem(t *testing.T) {
 	model.Update(tea.WindowSizeMsg{Width: 40, Height: 10})
 	calls := len(fake.calls())
 
+	_ = model.View()
 	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyUp})
 	if model.selected != 0 {
 		t.Fatalf("up at top selected = %d, want 0", model.selected)
 	}
-	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
-	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
-	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	for range 3 {
+		_ = model.View()
+		model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	}
 	if model.selected != len(model.visibleRows)-1 {
 		t.Fatalf("down at bottom selected = %d, want %d", model.selected, len(model.visibleRows)-1)
 	}
+	_ = model.View()
 	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	if model.selected != len(model.visibleRows)-1 {
 		t.Fatalf("down past bottom selected = %d, want %d", model.selected, len(model.visibleRows)-1)
 	}
 	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyUp})
+	_ = model.View()
 	if model.selected != len(model.visibleRows)-2 {
 		t.Fatalf("up selected = %d, want %d", model.selected, len(model.visibleRows)-2)
 	}
@@ -511,6 +516,79 @@ func TestViewportFollowsSelectionAndNarrowOrZeroWindowsAreSafe(t *testing.T) {
 	}
 	model.Update(tea.WindowSizeMsg{Width: -1, Height: -2})
 	_ = model.View()
+}
+
+func TestRenderingUsesCellWidthForUnicodeAndNarrowWindows(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{
+		{Name: "日本語", Mode: 0},
+		{Name: "emoji🙂", Mode: 0},
+		{Name: "e\u0301-combining", Mode: 0},
+		{Name: "control\x00\x1b\nname", Mode: 0},
+	})
+	model := NewModel(root, "status-日本語🙂", fake)
+	completeInitialLoad(t, model)
+
+	for width := 0; width <= 8; width++ {
+		model.Update(tea.WindowSizeMsg{Width: width, Height: 8})
+		content := ansi.Strip(model.View().Content)
+		for lineNumber, line := range strings.Split(content, "\n") {
+			if got := lipgloss.Width(line); got > width {
+				t.Fatalf("width %d line %d cell width = %d, want <= %d: %q", width, lineNumber, got, width, line)
+			}
+			if strings.ContainsAny(line, "\x00\x1b\n\r\t\x7f") {
+				t.Fatalf("width %d line %d contains terminal controls: %q", width, lineNumber, line)
+			}
+		}
+	}
+}
+
+func TestTruncateToWidthHandlesPrefixesAndGraphemes(t *testing.T) {
+	for _, value := range []string{"▸ 日本語🙂", "  日本語🙂", "e\u0301", "👨‍👩‍👧‍👦"} {
+		for width := 0; width <= 2; width++ {
+			got := truncateToWidth(value, width)
+			if actual := lipgloss.Width(got); actual > width {
+				t.Errorf("truncateToWidth(%q, %d) width = %d, want <= %d: %q", value, width, actual, width, got)
+			}
+		}
+	}
+}
+
+func TestDirectoryLoadErrorIsVisibleAndRetryable(t *testing.T) {
+	root := t.TempDir()
+	directoryPath := filepath.Join(root, "directory")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "directory", Mode: fs.ModeDir}})
+	fake.setError(directoryPath, errors.New("directory disappeared\x1b"))
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+
+	load := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	if load == nil {
+		t.Fatal("right returned nil command, want directory load")
+	}
+	model.Update(load().(browser.LoadResult))
+	directory := model.selectedNode()
+	if model.loading || directory.Loading() || directory.Loaded() {
+		t.Fatalf("directory error state = model loading %v, node loading %v, loaded %v; want idle and unloaded", model.loading, directory.Loading(), directory.Loaded())
+	}
+	if !strings.Contains(ansi.Strip(model.View().Content), "Error:") {
+		t.Fatalf("directory error view = %q, want error status", ansi.Strip(model.View().Content))
+	}
+
+	delete(fake.errors, cleanAbsolute(directoryPath))
+	fake.set(directoryPath, []filesystem.Entry{{Name: "recovered", Mode: 0}})
+	retry := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	if retry == nil || !model.loading || !directory.Loading() {
+		t.Fatalf("retry state = command %v, model loading %v, node loading %v; want pending retry", retry != nil, model.loading, directory.Loading())
+	}
+	model.Update(retry().(browser.LoadResult))
+	if directory.LoadError() != nil || !directory.Loaded() || model.loading {
+		t.Fatalf("recovered state = error %v, loaded %v, model loading %v; want successful idle load", directory.LoadError(), directory.Loaded(), model.loading)
+	}
 }
 
 func TestTerminalSafeSanitizationCoversDerivedStrings(t *testing.T) {

@@ -50,6 +50,7 @@ func ResolveRootAt(processCWD string, lookupEnv func(string) (string, bool)) (Ro
 	if lookupEnv == nil {
 		lookupEnv = os.LookupEnv
 	}
+	processRoot := absolutePath(processCWD)
 
 	warnings := make([]string, 0, 3)
 	snapshot, warning := readSnapshot(lookupEnv)
@@ -69,12 +70,13 @@ func ResolveRootAt(processCWD string, lookupEnv func(string) (string, bool)) (Ro
 		if candidate.path == "" {
 			continue
 		}
-		if err := ensureDirectory(candidate.path); err != nil {
+		candidatePath := resolvePath(processRoot, candidate.path)
+		if err := ensureDirectory(candidatePath); err != nil {
 			warnings = append(warnings, fmt.Sprintf("%s %q unavailable: %v", candidate.source, candidate.path, err))
 			continue
 		}
 		return RootResolution{
-			Path:    absolutePath(candidate.path),
+			Path:    candidatePath,
 			Source:  candidate.source,
 			Warning: strings.Join(warnings, "; "),
 		}, nil
@@ -84,12 +86,12 @@ func ResolveRootAt(processCWD string, lookupEnv func(string) (string, bool)) (Ro
 		warnings = append(warnings, "Herdr context contains no cwd candidates")
 	}
 
-	if err := ensureDirectory(processCWD); err != nil {
+	if err := ensureDirectory(processRoot); err != nil {
 		return RootResolution{}, fmt.Errorf("process cwd %q is unavailable: %w", processCWD, err)
 	}
 
 	return RootResolution{
-		Path:    absolutePath(processCWD),
+		Path:    processRoot,
 		Source:  ProcessRoot,
 		Warning: strings.Join(warnings, "; "),
 	}, nil
@@ -125,4 +127,11 @@ func absolutePath(path string) string {
 		return path
 	}
 	return abs
+}
+
+func resolvePath(base, path string) string {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(base, path)
+	}
+	return filepath.Clean(path)
 }
