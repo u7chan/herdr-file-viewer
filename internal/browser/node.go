@@ -1,6 +1,9 @@
 package browser
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"slices"
+)
 
 // NodeKind describes the entry type known without following a symlink.
 type NodeKind uint8
@@ -90,7 +93,7 @@ func (n *Node) Children() []*Node {
 	if n == nil {
 		return nil
 	}
-	return append([]*Node(nil), n.children...)
+	return slices.Clone(n.children)
 }
 
 // Expanded reports whether the node is currently expanded.

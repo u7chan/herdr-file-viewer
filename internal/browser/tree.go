@@ -1,10 +1,11 @@
 package browser
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"path/filepath"
-	"sort"
+	"slices"
 
 	"github.com/u7chan/herdr-file-viewer/internal/filesystem"
 )
@@ -132,14 +133,17 @@ func (t *Tree) ApplyLoad(result LoadResult) bool {
 	}
 
 	children := make([]*Node, 0, len(result.Entries))
-	entries := append([]filesystem.Entry(nil), result.Entries...)
-	sort.SliceStable(entries, func(i, j int) bool {
-		leftDirectory := entries[i].IsDirectory()
-		rightDirectory := entries[j].IsDirectory()
+	entries := slices.Clone(result.Entries)
+	slices.SortStableFunc(entries, func(left, right filesystem.Entry) int {
+		leftDirectory := left.IsDirectory()
+		rightDirectory := right.IsDirectory()
 		if leftDirectory != rightDirectory {
-			return leftDirectory
+			if leftDirectory {
+				return -1
+			}
+			return 1
 		}
-		return entries[i].Name < entries[j].Name
+		return cmp.Compare(left.Name, right.Name)
 	})
 
 	for _, entry := range entries {
