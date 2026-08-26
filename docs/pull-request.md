@@ -35,10 +35,10 @@ handled by the designated implementation/pr-fix owner.
 
 ## Unresolved conditions
 - None, or list the exact condition and required decision.
+```
 
 This PR is Draft. Do not merge, mark ready, or close the linked issue as part
 of implementation handoff.
-```
 
 ## Verification record
 
