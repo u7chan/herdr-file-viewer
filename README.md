@@ -113,3 +113,16 @@ GOTOOLCHAIN=local CGO_ENABLED=0 go build -trimpath ./cmd/herdr-file-viewer
 The CI checks are deterministic; performance observations are not CI failure
 thresholds. Cursor movement is required to avoid filesystem reads and visible
 row rebuilds by invariant rather than by a fixed time limit.
+
+## Benchmarks
+
+The hot-path benchmarks use deterministic in-memory fixtures. Visible-row
+rebuilds and cache hits are measured separately, and viewport rendering uses
+many already-loaded visible rows without filesystem access. Run them with the
+primary Go 1.27.0 toolchain:
+
+```bash
+go test -run '^$' -bench '^(BenchmarkVisibleRows|BenchmarkViewportRendering)' -benchmem ./internal/browser ./internal/app
+```
+
+The output is a comparison baseline, not a fixed performance threshold.
