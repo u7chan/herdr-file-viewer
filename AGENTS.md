@@ -2,7 +2,9 @@
 
 ## Tech Stack
 
-- Go 1.25 or newer
+- Go 1.25.0 source compatibility minimum
+- Go 1.27.0 latest stable for development and the primary CI lane
+- Go 1.25.14 minimum compatibility CI lane with `GOTOOLCHAIN=local`
 - Bubble Tea v2
 - Lip Gloss v2
 - Herdr Plugin v1
@@ -30,6 +32,9 @@ Keep How in the design and code rather than this document.
 - Treat tests as executable specifications.
 - Prefer deterministic invariants over timing-based assertions.
 - Required formatting, lint, vet, test, and static-build checks must pass.
+- The primary quality lane uses the pinned latest stable Go toolchain; the
+  minimum compatibility lane uses the actual supported Go 1.25 patch release
+  with toolchain auto-switching disabled.
 
 ## Comment Policy
 

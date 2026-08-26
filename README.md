@@ -24,8 +24,16 @@ No install package, distribution channel, or release artifact is provided.
 
 ## Requirements
 
-- Go 1.25 or newer
+- Go 1.25.0 or newer for source compatibility
+- Go 1.27.0 is the latest stable development and primary CI toolchain
+- The minimum compatibility CI lane runs Go 1.25.14 with `GOTOOLCHAIN=local`
 - Herdr 0.8.2 or newer for local plugin smoke tests
+
+`go.mod` keeps `go 1.25.0` as the minimum compatibility directive and pins
+`toolchain go1.27.0` for the recommended development toolchain. Go 1.27.0 is
+the latest stable release confirmed from the official Go release information
+at implementation time. The supported Go 1.25 patch release used by the
+minimum lane is Go 1.25.14.
 
 ## Build
 
@@ -82,6 +90,8 @@ measurements are in [`docs/issue-6-verification.md`](docs/issue-6-verification.m
 
 ## Verification
 
+The primary quality lane uses Go 1.27.0 and runs:
+
 ```bash
 test -z "$(gofmt -l $(git ls-files '*.go'))"
 golangci-lint run
@@ -90,6 +100,14 @@ go test ./...
 go test -race ./...
 CGO_ENABLED=0 go build -trimpath ./cmd/herdr-file-viewer
 CGO_ENABLED=0 go build -trimpath -o bin/herdr-file-viewer ./cmd/herdr-file-viewer
+```
+
+The minimum compatibility lane uses the actual Go 1.25.14 toolchain and
+disables automatic toolchain switching:
+
+```bash
+GOTOOLCHAIN=local go test ./...
+GOTOOLCHAIN=local CGO_ENABLED=0 go build -trimpath ./cmd/herdr-file-viewer
 ```
 
 The CI checks are deterministic; performance observations are not CI failure
