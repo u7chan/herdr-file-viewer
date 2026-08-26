@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/u7chan/herdr-file-viewer/internal/browser"
 	"github.com/u7chan/herdr-file-viewer/internal/filesystem"
@@ -19,6 +20,7 @@ var (
 const (
 	loadingStatus = "Loading directory..."
 	readyStatus   = "Ready"
+	ellipsis      = "…"
 )
 
 // Model owns UI state and delegates all filesystem work to commands that read
@@ -253,7 +255,7 @@ func (m *Model) collapseOrMoveToParent() {
 	if node == nil {
 		return
 	}
-	if node.IsDirectory() && node.Expanded() {
+	if node.IsDirectory() && node.Expanded() && node.Parent() != nil {
 		if m.tree.Collapse(node) {
 			m.refreshVisibleRows()
 		}
@@ -389,20 +391,25 @@ func (m *Model) renderRow(index int, row browser.VisibleRow) string {
 	}
 
 	indent := strings.Repeat("  ", row.Depth)
+	isRoot := row.Node.Parent() == nil
 	name := row.Node.Name()
-	if row.Node.Parent() == nil {
+	if isRoot {
 		name = row.Node.Path()
 	}
 	name = sanitizeDisplay(name)
-	if row.Node.IsDirectory() {
-		chevron := "▸"
-		if row.Node.Expanded() {
-			chevron = "▾"
+	if !isRoot {
+		if row.Node.IsDirectory() {
+			chevron := "▸"
+			if row.Node.Expanded() {
+				chevron = "▾"
+			}
+			name = indent + chevron + " " + name
+		} else {
+			name = indent + "  " + name
 		}
-		name = indent + chevron + " " + name
-	} else {
-		name = indent + "  " + name
 	}
+	// The root row is the fixed current-path display: it cannot be collapsed
+	// through UI toggles, so a chevron would falsely imply expandability.
 
 	style := lipgloss.NewStyle().Inline(true)
 	if index == m.selected {
@@ -429,7 +436,7 @@ func truncateToWidth(value string, width int) string {
 	if lipgloss.Width(value) <= width {
 		return value
 	}
-	return lipgloss.NewStyle().Inline(true).MaxWidth(width).Render(value)
+	return ansi.Truncate(value, width, ellipsis)
 }
 
 func (m *Model) readyStatus() string {
