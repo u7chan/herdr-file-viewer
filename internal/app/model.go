@@ -130,7 +130,7 @@ func (m *Model) View() tea.View {
 	headerHeight, treeHeight, statusHeight := layoutHeights(m.height)
 	lines := make([]string, 0, headerHeight+treeHeight+statusHeight)
 	if headerHeight > 0 {
-		lines = append(lines, m.renderLine(titleStyle.Render("Herdr File Viewer")))
+		lines = append(lines, m.renderStyledLine("Herdr File Viewer", titleStyle))
 	}
 	if treeHeight > 0 {
 		lines = append(lines, m.renderTree(treeHeight)...)
@@ -404,18 +404,32 @@ func (m *Model) renderRow(index int, row browser.VisibleRow) string {
 		name = indent + "  " + name
 	}
 
-	style := lipgloss.NewStyle().Inline(true).MaxWidth(m.width)
+	style := lipgloss.NewStyle().Inline(true)
 	if index == m.selected {
-		style = selectedStyle.Inline(true).MaxWidth(m.width)
+		style = selectedStyle.Inline(true)
 	}
-	return style.Width(m.width).Render(name)
+	return style.Width(m.width).Render(truncateToWidth(name, m.width))
 }
 
 func (m *Model) renderLine(line string) string {
+	return m.renderStyledLine(sanitizeDisplay(line), lipgloss.NewStyle())
+}
+
+func (m *Model) renderStyledLine(line string, style lipgloss.Style) string {
 	if m.width <= 0 {
 		return ""
 	}
-	return lipgloss.NewStyle().Inline(true).MaxWidth(m.width).Width(m.width).Render(line)
+	return style.Inline(true).Width(m.width).Render(truncateToWidth(line, m.width))
+}
+
+func truncateToWidth(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(value) <= width {
+		return value
+	}
+	return lipgloss.NewStyle().Inline(true).MaxWidth(width).Render(value)
 }
 
 func (m *Model) readyStatus() string {

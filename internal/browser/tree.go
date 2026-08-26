@@ -104,7 +104,7 @@ func (t *Tree) Collapse(node *Node) bool {
 // be called from a command goroutine; ApplyLoad is the mutation boundary.
 func (t *Tree) Read(request LoadRequest) LoadResult {
 	result := LoadResult{Node: request.Node, Path: request.Path}
-	if t == nil || request.Node == nil || request.Path == "" {
+	if t == nil || t.fileSystem == nil || request.Node == nil || request.Path == "" {
 		result.Err = errInvalidLoadRequest
 		return result
 	}
