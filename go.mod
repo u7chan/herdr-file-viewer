@@ -2,6 +2,8 @@ module github.com/u7chan/herdr-file-viewer
 
 go 1.25.0
 
+toolchain go1.27.0
+
 require (
 	charm.land/bubbletea/v2 v2.0.9
 	charm.land/lipgloss/v2 v2.0.6
