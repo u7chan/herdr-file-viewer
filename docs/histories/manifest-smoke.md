@@ -1,4 +1,4 @@
-# Issue #21 verification
+# Manifest スモーク記録 (Issue #21)
 
 This record covers the `open-file-viewer` Action added to
 `herdr-plugin.toml`. The checks were run from the Linux WSL2 development

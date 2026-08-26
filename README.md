@@ -92,11 +92,6 @@ To remove the local link after testing:
 herdr plugin unlink u7chan.file-viewer
 ```
 
-The complete WSL2/Herdr smoke record and the non-gating performance
-measurements are in [`docs/issue-6-verification.md`](docs/issue-6-verification.md).
-The manifest Action/link/pane smoke record is in
-[`docs/issue-21-verification.md`](docs/issue-21-verification.md).
-
 ## Verification
 
 The primary quality lane uses Go 1.27.0 and runs:
