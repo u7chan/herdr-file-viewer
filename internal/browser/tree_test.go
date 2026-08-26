@@ -120,6 +120,40 @@ func TestTreeLoadsDirectoriesLazilyAndSortsHiddenEntries(t *testing.T) {
 	}
 }
 
+func TestApplyLoadDoesNotMutateInputEntries(t *testing.T) {
+	rootPath := filepath.Join("workspace", "root")
+	tree := mustTree(t, rootPath, newFakeFileSystem())
+	request, ok := tree.RequestLoad(tree.Root())
+	if !ok {
+		t.Fatal("RequestLoad(root) started no load")
+	}
+
+	entries := []filesystem.Entry{
+		{Name: "file", Mode: 0},
+		{Name: "directory", Mode: fs.ModeDir},
+	}
+	wantEntries := append([]filesystem.Entry(nil), entries...)
+	if !tree.ApplyLoad(LoadResult{Node: request.Node, Path: request.Path, Entries: entries}) {
+		t.Fatal("ApplyLoad() rejected result")
+	}
+	if !reflect.DeepEqual(entries, wantEntries) {
+		t.Fatalf("input entries = %#v, want unchanged %#v", entries, wantEntries)
+	}
+}
+
+func TestChildrenReturnsDefensiveShallowCopy(t *testing.T) {
+	root := newRootNode("/workspace/root")
+	child := newChildNode(root, "/workspace/root/child", "child", KindFile)
+	root.children = []*Node{child}
+
+	children := root.Children()
+	children[0] = nil
+
+	if root.children[0] != child {
+		t.Fatalf("internal child = %p, want original child %p", root.children[0], child)
+	}
+}
+
 func TestTreeSuppressesDuplicateLoadsAndReusesCollapsedCache(t *testing.T) {
 	rootPath := filepath.Join("workspace", "root")
 	fake := newFakeFileSystem()
