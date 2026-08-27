@@ -32,6 +32,7 @@ Keep How in the design and code rather than this document.
 - Treat tests as executable specifications.
 - Prefer deterministic invariants over timing-based assertions.
 - Required formatting, lint, vet, test, and static-build checks must pass.
+- The lint check is `golangci-lint run`, pinned in `.github/workflows/ci.yml`; treat the CI step as required, not optional.
 - The primary quality lane uses the pinned latest stable Go toolchain; the
   minimum compatibility lane uses the actual supported Go 1.25 patch release
   with toolchain auto-switching disabled.
