@@ -147,6 +147,9 @@ func (t *Tree) ApplyLoad(result LoadResult) bool {
 	})
 
 	for _, entry := range entries {
+		if entry.Name == ".git" {
+			continue
+		}
 		children = append(children, newChildNode(
 			node,
 			filepath.Join(node.path, entry.Name),

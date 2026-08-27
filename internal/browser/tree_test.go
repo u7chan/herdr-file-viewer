@@ -50,7 +50,7 @@ func TestTreeReadRejectsInvalidRequestWithoutFilesystemAccess(t *testing.T) {
 	}
 }
 
-func TestTreeLoadsDirectoriesLazilyAndSortsHiddenEntries(t *testing.T) {
+func TestTreeLoadsDirectoriesLazilySortsHiddenEntriesAndExcludesGit(t *testing.T) {
 	rootPath := filepath.Join("workspace", "root")
 	fake := newFakeFileSystem()
 	fake.set(rootPath, []filesystem.Entry{
@@ -58,6 +58,7 @@ func TestTreeLoadsDirectoriesLazilyAndSortsHiddenEntries(t *testing.T) {
 		{Name: ".hidden-file", Mode: 0},
 		{Name: "visible-dir", Mode: fs.ModeDir},
 		{Name: ".hidden-dir", Mode: fs.ModeDir},
+		{Name: ".git", Mode: fs.ModeDir},
 		{Name: "directory-link", Mode: fs.ModeSymlink},
 	})
 	tree := mustTree(t, rootPath, fake)
@@ -210,7 +211,10 @@ func TestTreeKeepsNestedDirectoriesLazy(t *testing.T) {
 	fake := newFakeFileSystem()
 	fake.set(rootPath, []filesystem.Entry{{Name: "dir", Mode: fs.ModeDir}})
 	childPath := filepath.Join(absoluteTestPath(t, rootPath), "dir")
-	fake.set(childPath, []filesystem.Entry{{Name: "nested-file", Mode: 0}})
+	fake.set(childPath, []filesystem.Entry{
+		{Name: ".git", Mode: fs.ModeDir},
+		{Name: "nested-file", Mode: 0},
+	})
 	tree := mustTree(t, rootPath, fake)
 
 	rootRequest, _ := tree.Expand(tree.Root())
