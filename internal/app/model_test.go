@@ -251,6 +251,10 @@ func TestRightExpandsDirectoryAndLeftCollapsesOrMovesToParent(t *testing.T) {
 	if model.selected != 0 || model.selectedNode() != model.tree.Root() {
 		t.Fatalf("left from collapsed directory selected = %d, want root row 0", model.selected)
 	}
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if len(model.visibleRows) != 2 || !model.tree.Root().Expanded() || model.selected != 0 {
+		t.Fatalf("left on root state = rows %d, root expanded %v, selected %d; want rows 2, true, 0", len(model.visibleRows), model.tree.Root().Expanded(), model.selected)
+	}
 }
 
 func TestEnterIsNoOpAndStaleResultsAreIgnored(t *testing.T) {
@@ -591,7 +595,70 @@ func TestDirectoryLoadErrorIsVisibleAndRetryable(t *testing.T) {
 	}
 }
 
+func TestTruncateToWidthAddsEllipsis(t *testing.T) {
+	if got := truncateToWidth("exactly", 7); got != "exactly" {
+		t.Fatalf("fitting value = %q, want unchanged", got)
+	}
+	for _, test := range []struct {
+		value string
+		width int
+	}{
+		{"a very long path", 5},
+		{"日本語ファイル名.txt", 6},
+		{"emoji🙂 name", 4},
+	} {
+		got := truncateToWidth(test.value, test.width)
+		if actual := lipgloss.Width(got); actual > test.width {
+			t.Errorf("truncateToWidth(%q, %d) width = %d, want <= %d: %q", test.value, test.width, actual, test.width, got)
+		}
+		if !strings.HasSuffix(got, ellipsis) {
+			t.Errorf("truncateToWidth(%q, %d) = %q, want %q suffix", test.value, test.width, got, ellipsis)
+		}
+	}
+	if got := truncateToWidth("xx", 1); got != ellipsis {
+		t.Fatalf("width 1 = %q, want ellipsis only", got)
+	}
+}
+
+func TestRootRowRendersWithoutChevron(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
+
+	content := ansi.Strip(model.View().Content)
+	lines := strings.Split(content, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("view lines = %d, want at least 2", len(lines))
+	}
+	if strings.ContainsAny(lines[1], "▸▾") {
+		t.Fatalf("root row = %q, want no chevron", lines[1])
+	}
+	if !strings.Contains(lines[1], root) {
+		t.Fatalf("root row = %q, want path %q", lines[1], root)
+	}
+}
+
+func TestRootMouseClickSelectsWithoutCollapsing(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
+
+	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 1, Button: tea.MouseLeft}); cmd != nil {
+		t.Fatalf("root click returned command %v, want nil", cmd)
+	}
+	if len(model.visibleRows) != 2 || !model.tree.Root().Expanded() || model.selected != 0 {
+		t.Fatalf("root click state = rows %d, root expanded %v, selected %d; want rows 2, true, 0", len(model.visibleRows), model.tree.Root().Expanded(), model.selected)
+	}
+}
+
 func TestTerminalSafeSanitizationCoversDerivedStrings(t *testing.T) {
+
 	value := sanitizeDisplay("ok\x00\x1b\n\r\t\x7f\u0085\xff")
 	if strings.ContainsAny(value, "\x00\x1b\n\r\t\x7f") {
 		t.Fatalf("sanitizeDisplay() = %q, contains terminal controls", value)

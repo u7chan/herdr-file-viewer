@@ -45,6 +45,9 @@ Keep How in the design and code rather than this document.
 ## Review Policy
 
 - Write review findings and review results in Japanese.
+- After the feedback loop (review findings + fixes) completes, rebuild
+  `bin/herdr-file-viewer` from the final code and report it as built; the user
+  verifies the result themselves.
 
 ## References
 
