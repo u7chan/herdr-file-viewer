@@ -111,7 +111,7 @@ CGO_ENABLED=0 go build -trimpath -o bin/herdr-file-viewer ./cmd/herdr-file-viewe
 
 `mise x go@1.27.0 golangci-lint -- golangci-lint run` installs and runs the golangci-lint
 version pinned in `.mise.toml` (v2.13.1), the same version CI installs, alongside the
-Go 1.27.0 development toolchain. Without mise, install the same golangci-lint version with `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1`, then run `$(go env GOPATH)/bin/golangci-lint run` (or `$GOBIN/golangci-lint` when `GOBIN` is set, since `go install` installs there instead).
+Go 1.27.0 development toolchain. Without mise, install the same golangci-lint version with `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1`, then run `$(go env GOPATH)/bin/golangci-lint run` (or `$(go env GOBIN)/golangci-lint` when `GOBIN` is configured, since `go install` installs there instead).
 
 The minimum compatibility lane uses the actual Go 1.25.14 toolchain and
 disables automatic toolchain switching:
