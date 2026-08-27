@@ -12,6 +12,8 @@ import (
 
 var errInvalidLoadRequest = errors.New("invalid filesystem load request")
 
+const gitEntryName = ".git"
+
 // LoadRequest identifies one directory read. It is safe to execute the read
 // without mutating the Tree and to apply the result later in the owner of the
 // tree's update loop.
@@ -147,6 +149,9 @@ func (t *Tree) ApplyLoad(result LoadResult) bool {
 	})
 
 	for _, entry := range entries {
+		if entry.Name == gitEntryName {
+			continue
+		}
 		children = append(children, newChildNode(
 			node,
 			filepath.Join(node.path, entry.Name),

@@ -85,6 +85,8 @@ Names containing C0/C1 controls, ESC, invalid UTF-8, CJK, emoji, or combining
 characters are sanitized and truncated by terminal cell width. Widths 0, 1,
 and 2 are handled without allowing a row, selection bar, or status line to
 exceed the pane width. Symlinks are displayed but never followed.
+Entries named `.git` are hidden at every tree depth; other dotfiles remain
+visible.
 
 To remove the local link after testing:
 
