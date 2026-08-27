@@ -28,6 +28,7 @@ No install package, distribution channel, or release artifact is provided.
 - Go 1.27.0 is the latest stable development and primary CI toolchain
 - The minimum compatibility CI lane runs Go 1.25.14 with `GOTOOLCHAIN=local`
 - Herdr 0.8.2 or newer for local plugin smoke tests
+- golangci-lint 2.13.1, pinned in `.mise.toml` so local linting matches CI
 
 `go.mod` keeps `go 1.25.0` as the minimum compatibility directive and pins
 `toolchain go1.27.0` for the recommended development toolchain. Go 1.27.0 is
@@ -100,13 +101,19 @@ The primary quality lane uses Go 1.27.0 and runs:
 
 ```bash
 test -z "$(gofmt -l $(git ls-files '*.go'))"
-golangci-lint run
+mise x go@1.27.0 golangci-lint -- golangci-lint run
 go vet ./...
 go test ./...
 go test -race ./...
 CGO_ENABLED=0 go build -trimpath ./cmd/herdr-file-viewer
 CGO_ENABLED=0 go build -trimpath -o bin/herdr-file-viewer ./cmd/herdr-file-viewer
 ```
+
+`mise x go@1.27.0 golangci-lint -- golangci-lint run` installs and runs the golangci-lint
+version pinned in `.mise.toml` (v2.13.1), the same version CI installs, alongside the
+Go 1.27.0 development toolchain. Without mise, install the same golangci-lint version
+with `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1` and
+run `$(go env GOPATH)/bin/golangci-lint run`.
 
 The minimum compatibility lane uses the actual Go 1.25.14 toolchain and
 disables automatic toolchain switching:
