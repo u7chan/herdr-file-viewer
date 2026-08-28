@@ -535,13 +535,24 @@ func TestFooterAndDividerReserveTheBottomOfTheViewport(t *testing.T) {
 		{height: 0, wantHeader: 0, wantTree: 0, wantFooter: 0, wantTop: 0, wantBottom: 0},
 		{height: 1, wantHeader: 1, wantTree: 0, wantFooter: 0, wantTop: 0, wantBottom: 0},
 		{height: 2, wantHeader: 1, wantTree: 0, wantFooter: 1, wantTop: 0, wantBottom: 0},
-		{height: 3, wantHeader: 1, wantTree: 0, wantFooter: 1, wantTop: 0, wantBottom: 1},
-		{height: 4, wantHeader: 1, wantTree: 0, wantFooter: 1, wantTop: 1, wantBottom: 1},
+		{height: 3, wantHeader: 1, wantTree: 1, wantFooter: 1, wantTop: 0, wantBottom: 0},
+		{height: 4, wantHeader: 1, wantTree: 1, wantFooter: 1, wantTop: 1, wantBottom: 0},
+		{height: 5, wantHeader: 1, wantTree: 1, wantFooter: 1, wantTop: 1, wantBottom: 1},
 		{height: 6, wantHeader: 1, wantTree: 2, wantFooter: 1, wantTop: 1, wantBottom: 1},
 	} {
 		header, tree, footer := layoutHeights(test.height)
 		if header != test.wantHeader || tree != test.wantTree || footer != test.wantFooter || headerDividerHeight(test.height) != test.wantTop || footerDividerHeight(test.height) != test.wantBottom {
 			t.Errorf("layoutHeights(%d) = (%d, %d, %d), dividers %d/%d; want (%d, %d, %d), dividers %d/%d", test.height, header, tree, footer, headerDividerHeight(test.height), footerDividerHeight(test.height), test.wantHeader, test.wantTree, test.wantFooter, test.wantTop, test.wantBottom)
+		}
+	}
+
+	for _, height := range []int{3, 4} {
+		model.Update(tea.WindowSizeMsg{Width: 80, Height: height})
+		lines := strings.Split(ansi.Strip(model.View().Content), "\n")
+		_, treeHeight, _ := layoutHeights(height)
+		rootLine := 1 + headerDividerHeight(height)
+		if treeHeight < stickyRootHeight || !strings.Contains(lines[rootLine], root) {
+			t.Fatalf("height %d root row = %q, want root path %q", height, lines[rootLine], root)
 		}
 	}
 }

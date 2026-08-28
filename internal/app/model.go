@@ -804,7 +804,7 @@ func headerDividerHeight(height int) int {
 }
 
 func footerDividerHeight(height int) int {
-	if nonNegative(height) >= 3 {
+	if nonNegative(height) >= 5 {
 		return 1
 	}
 	return 0
