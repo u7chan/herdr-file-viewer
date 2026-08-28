@@ -620,6 +620,25 @@ func TestTruncateToWidthAddsEllipsis(t *testing.T) {
 	}
 }
 
+func TestTruncateRootPathPreservesTheRootDirectoryName(t *testing.T) {
+	path := "/home/u7dev/workspace/herdr-file-viewer"
+
+	if got := truncateRootPath(path, lipgloss.Width(path)); got != path {
+		t.Fatalf("full-width root path = %q, want unchanged path %q", got, path)
+	}
+	if got := truncateRootPath(path, 19); got != "…/herdr-file-viewer" {
+		t.Fatalf("narrow root path = %q, want %q", got, "…/herdr-file-viewer")
+	}
+	if got := truncateRootPath(path, 30); got != "…/workspace/herdr-file-viewer" {
+		t.Fatalf("progressive root path = %q, want %q", got, "…/workspace/herdr-file-viewer")
+	}
+	for width := 0; width <= 19; width++ {
+		if got := lipgloss.Width(truncateRootPath(path, width)); got > width {
+			t.Errorf("root path width %d = %d, want <= %d", width, got, width)
+		}
+	}
+}
+
 func TestRootRowRendersWithoutChevron(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeFileSystem()
@@ -633,8 +652,11 @@ func TestRootRowRendersWithoutChevron(t *testing.T) {
 	if len(lines) < 2 {
 		t.Fatalf("view lines = %d, want at least 2", len(lines))
 	}
-	if strings.ContainsAny(lines[1], "▸▾") {
+	if strings.ContainsAny(lines[1], "▸▾") {
 		t.Fatalf("root row = %q, want no chevron", lines[1])
+	}
+	if !strings.Contains(lines[1], "") {
+		t.Fatalf("root row = %q, want the home icon", lines[1])
 	}
 	if !strings.Contains(lines[1], root) {
 		t.Fatalf("root row = %q, want path %q", lines[1], root)

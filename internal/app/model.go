@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -390,6 +391,7 @@ func (m *Model) renderRow(index int, row browser.VisibleRow) string {
 		return ""
 	}
 
+	icons := iconsFor(defaultTreeIconSet)
 	indent := strings.Repeat("  ", row.Depth)
 	isRoot := row.Node.Parent() == nil
 	name := row.Node.Name()
@@ -397,15 +399,19 @@ func (m *Model) renderRow(index int, row browser.VisibleRow) string {
 		name = row.Node.Path()
 	}
 	name = sanitizeDisplay(name)
-	if !isRoot {
+	if isRoot {
+		rootPrefix := rootTreeIcon + " "
+		name = rootPrefix + truncateRootPath(name, m.width-lipgloss.Width(rootPrefix))
+	} else {
+		icon := iconForNode(row.Node, icons)
 		if row.Node.IsDirectory() {
-			chevron := "▸"
+			chevron := collapsedTreeIcon
 			if row.Node.Expanded() {
-				chevron = "▾"
+				chevron = expandedTreeIcon
 			}
-			name = indent + chevron + " " + name
+			name = indent + chevron + " " + icon + " " + name
 		} else {
-			name = indent + "  " + name
+			name = indent + "  " + icon + " " + name
 		}
 	}
 	// The root row is the fixed current-path display: it cannot be collapsed
@@ -437,6 +443,35 @@ func truncateToWidth(value string, width int) string {
 		return value
 	}
 	return ansi.Truncate(value, width, ellipsis)
+}
+
+func truncateRootPath(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(value) <= width {
+		return value
+	}
+
+	pathPrefix := ellipsis + string(filepath.Separator)
+	if width <= lipgloss.Width(pathPrefix) {
+		return truncateToWidth(pathPrefix, width)
+	}
+
+	suffix := truncateTailToWidth(value, width-lipgloss.Width(pathPrefix))
+	suffix = strings.TrimPrefix(suffix, string(filepath.Separator))
+	return pathPrefix + suffix
+}
+
+func truncateTailToWidth(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	valueWidth := lipgloss.Width(value)
+	if valueWidth <= width {
+		return value
+	}
+	return ansi.TruncateLeft(value, valueWidth-width, "")
 }
 
 func (m *Model) readyStatus() string {
