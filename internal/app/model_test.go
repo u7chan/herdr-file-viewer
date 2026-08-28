@@ -71,7 +71,7 @@ func TestPendingLoadProcessesResizeAndPreservesViewport(t *testing.T) {
 	fake.set(directoryPath, nil)
 	model := NewModel(root, "", fake)
 	completeInitialLoad(t, model)
-	model.Update(tea.WindowSizeMsg{Width: 40, Height: 4})
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
 	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
 
@@ -85,11 +85,11 @@ func TestPendingLoadProcessesResizeAndPreservesViewport(t *testing.T) {
 		t.Fatalf("right load = %v, loading = %v; want pending load", load != nil, model.loading)
 	}
 
-	if _, next := model.Update(tea.WindowSizeMsg{Width: 80, Height: 4}); next != nil {
+	if _, next := model.Update(tea.WindowSizeMsg{Width: 80, Height: 6}); next != nil {
 		t.Fatalf("resize during pending load returned command %v, want nil", next)
 	}
-	if model.width != 80 || model.height != 4 {
-		t.Fatalf("resize dimensions = %d x %d, want 80 x 4", model.width, model.height)
+	if model.width != 80 || model.height != 6 {
+		t.Fatalf("resize dimensions = %d x %d, want 80 x 6", model.width, model.height)
 	}
 	if model.selected != selectedBefore || model.offset != offsetBefore {
 		t.Fatalf("viewport after pending resize = selected %d, offset %d; want %d, %d", model.selected, model.offset, selectedBefore, offsetBefore)
@@ -341,15 +341,15 @@ func TestMouseClickMapsVisibleRowsUsingHeaderAndViewportOffset(t *testing.T) {
 	fake.set(root, entries)
 	model := NewModel(root, "", fake)
 	completeInitialLoad(t, model)
-	model.Update(tea.WindowSizeMsg{Width: 40, Height: 4})
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 7})
 	for index := 0; index < 3; index++ {
 		model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	}
-	if model.selected != 3 || model.offset != 2 {
-		t.Fatalf("viewport before click = selected %d, offset %d; want 3, 2", model.selected, model.offset)
+	if model.selected != 3 || model.offset != 1 {
+		t.Fatalf("viewport before click = selected %d, offset %d; want 3, 1", model.selected, model.offset)
 	}
 
-	if _, cmd := model.Update(tea.MouseClickMsg{X: 0, Y: 1, Button: tea.MouseLeft}); cmd != nil {
+	if _, cmd := model.Update(tea.MouseClickMsg{X: 0, Y: 3, Button: tea.MouseLeft}); cmd != nil {
 		t.Fatalf("visible-row click returned command %v, want nil", cmd)
 	}
 	if model.selected != 2 || model.selectedNode().Name() != "b" {
@@ -357,7 +357,7 @@ func TestMouseClickMapsVisibleRowsUsingHeaderAndViewportOffset(t *testing.T) {
 	}
 
 	selected, offset, status := model.selected, model.offset, model.status
-	for _, y := range []int{-1, 0, 3, 4} {
+	for _, y := range []int{-1, 0, 1, 5, 6, 7} {
 		if _, cmd := model.Update(tea.MouseClickMsg{X: 0, Y: y, Button: tea.MouseLeft}); cmd != nil {
 			t.Fatalf("out-of-tree click at y=%d returned command %v, want nil", y, cmd)
 		}
@@ -377,7 +377,7 @@ func TestMouseDirectoryClickExpandsCollapsesAndLoadsAsynchronously(t *testing.T)
 	completeInitialLoad(t, model)
 	model.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
 
-	cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 2, Button: tea.MouseLeft})
+	cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 3, Button: tea.MouseLeft})
 	if cmd == nil {
 		t.Fatal("directory click returned nil command, want async load")
 	}
@@ -398,14 +398,14 @@ func TestMouseDirectoryClickExpandsCollapsesAndLoadsAsynchronously(t *testing.T)
 		t.Fatalf("loaded directory state = rows %d, loaded %v, loading %v; want 3, true, false", len(model.visibleRows), directory.Loaded(), directory.Loading())
 	}
 
-	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 2, Button: tea.MouseLeft}); cmd != nil {
+	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 3, Button: tea.MouseLeft}); cmd != nil {
 		t.Fatalf("expanded directory click returned command %v, want nil collapse", cmd)
 	}
 	if len(model.visibleRows) != 2 || directory.Expanded() || model.selected != 1 {
 		t.Fatalf("directory collapse state = rows %d, expanded %v, selected %d; want 2, false, 1", len(model.visibleRows), directory.Expanded(), model.selected)
 	}
 
-	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 2, Button: tea.MouseLeft}); cmd != nil {
+	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 3, Button: tea.MouseLeft}); cmd != nil {
 		t.Fatalf("loaded directory re-expand returned command %v, want nil", cmd)
 	}
 	if len(model.visibleRows) != 3 || !directory.Expanded() {
@@ -426,24 +426,24 @@ func TestMouseClickSelectsRootFileAndSymlinkWithoutCopyOrPreview(t *testing.T) {
 	})
 	model := NewModel(root, "", fake)
 	completeInitialLoad(t, model)
-	model.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
 	calls := len(fake.calls())
 
-	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 1, Button: tea.MouseLeft}); cmd != nil {
+	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 2, Button: tea.MouseLeft}); cmd != nil {
 		t.Fatalf("root click returned command %v, want nil", cmd)
 	}
 	if model.selected != 0 || !model.tree.Root().Expanded() || len(model.visibleRows) != 4 {
 		t.Fatalf("root click state = selected %d, expanded %v, rows %d; want 0, true, 4", model.selected, model.tree.Root().Expanded(), len(model.visibleRows))
 	}
 
-	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 3, Button: tea.MouseLeft}); cmd != nil {
+	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 4, Button: tea.MouseLeft}); cmd != nil {
 		t.Fatalf("file click returned command %v, want nil", cmd)
 	}
 	if model.selected != 2 || model.selectedNode().Name() != "file" || model.status != readyStatus {
 		t.Fatalf("file click state = selected %d (%q), status %q; want file row and %q", model.selected, model.selectedNode().Name(), model.status, readyStatus)
 	}
 
-	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 4, Button: tea.MouseLeft}); cmd != nil {
+	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 5, Button: tea.MouseLeft}); cmd != nil {
 		t.Fatalf("symlink click returned command %v, want nil", cmd)
 	}
 	if model.selected != 3 || model.selectedNode().Name() != "link" || model.status != readyStatus {
@@ -464,11 +464,11 @@ func TestMouseIgnoresNonLeftEventsAndViewDoesNotRequestAllMotion(t *testing.T) {
 	selected, offset, status, calls := model.selected, model.offset, model.status, len(fake.calls())
 
 	for _, msg := range []tea.Msg{
-		tea.MouseClickMsg{X: 0, Y: 2, Button: tea.MouseRight},
-		tea.MouseClickMsg{X: 0, Y: 2, Button: tea.MouseMiddle},
+		tea.MouseClickMsg{X: 0, Y: 3, Button: tea.MouseRight},
+		tea.MouseClickMsg{X: 0, Y: 3, Button: tea.MouseMiddle},
 		tea.MouseWheelMsg{X: 0, Y: 2, Button: tea.MouseWheelDown},
-		tea.MouseReleaseMsg{X: 0, Y: 2, Button: tea.MouseLeft},
-		tea.MouseMotionMsg{X: 0, Y: 2, Button: tea.MouseLeft},
+		tea.MouseReleaseMsg{X: 0, Y: 3, Button: tea.MouseLeft},
+		tea.MouseMotionMsg{X: 0, Y: 3, Button: tea.MouseLeft},
 	} {
 		if _, cmd := model.Update(msg); cmd != nil {
 			t.Fatalf("ignored mouse event %T returned command %v, want nil", msg, cmd)
@@ -490,6 +490,245 @@ func TestMouseIgnoresNonLeftEventsAndViewDoesNotRequestAllMotion(t *testing.T) {
 	}
 }
 
+func TestFooterAndDividerReserveTheBottomOfTheViewport(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
+
+	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
+	if len(lines) != 6 {
+		t.Fatalf("view lines = %d, want 6: %q", len(lines), model.View().Content)
+	}
+	header := lines[0]
+	if strings.TrimSpace(header) != "Herdr File Viewer" {
+		t.Fatalf("header = %q, want centered title", header)
+	}
+	leftPadding := len(header) - len(strings.TrimLeft(header, " "))
+	rightPadding := len(header) - len(strings.TrimRight(header, " "))
+	if leftPadding < rightPadding-1 || leftPadding > rightPadding+1 {
+		t.Fatalf("header padding = left %d, right %d; want centered title", leftPadding, rightPadding)
+	}
+	if !strings.Contains(lines[1], dividerGlyph) || lipgloss.Width(lines[1]) != 80 {
+		t.Fatalf("header divider = %q, want a full-width divider", lines[1])
+	}
+	if !strings.Contains(lines[4], dividerGlyph) || lipgloss.Width(lines[4]) != 80 {
+		t.Fatalf("footer divider = %q, want a full-width divider", lines[4])
+	}
+	if !strings.HasPrefix(strings.TrimRight(lines[len(lines)-1], " "), readyStatus) {
+		t.Fatalf("footer = %q, want %q at the bottom", lines[len(lines)-1], readyStatus)
+	}
+	if !strings.Contains(lines[2], root) {
+		t.Fatalf("first tree row = %q, want root path %q", lines[2], root)
+	}
+
+	for _, test := range []struct {
+		height     int
+		wantHeader int
+		wantTree   int
+		wantFooter int
+		wantTop    int
+		wantBottom int
+	}{
+		{height: 0, wantHeader: 0, wantTree: 0, wantFooter: 0, wantTop: 0, wantBottom: 0},
+		{height: 1, wantHeader: 1, wantTree: 0, wantFooter: 0, wantTop: 0, wantBottom: 0},
+		{height: 2, wantHeader: 1, wantTree: 0, wantFooter: 1, wantTop: 0, wantBottom: 0},
+		{height: 3, wantHeader: 1, wantTree: 1, wantFooter: 1, wantTop: 0, wantBottom: 0},
+		{height: 4, wantHeader: 1, wantTree: 1, wantFooter: 1, wantTop: 1, wantBottom: 0},
+		{height: 5, wantHeader: 1, wantTree: 1, wantFooter: 1, wantTop: 1, wantBottom: 1},
+		{height: 6, wantHeader: 1, wantTree: 2, wantFooter: 1, wantTop: 1, wantBottom: 1},
+	} {
+		header, tree, footer := layoutHeights(test.height)
+		if header != test.wantHeader || tree != test.wantTree || footer != test.wantFooter || headerDividerHeight(test.height) != test.wantTop || footerDividerHeight(test.height) != test.wantBottom {
+			t.Errorf("layoutHeights(%d) = (%d, %d, %d), dividers %d/%d; want (%d, %d, %d), dividers %d/%d", test.height, header, tree, footer, headerDividerHeight(test.height), footerDividerHeight(test.height), test.wantHeader, test.wantTree, test.wantFooter, test.wantTop, test.wantBottom)
+		}
+	}
+
+	for _, height := range []int{3, 4} {
+		model.Update(tea.WindowSizeMsg{Width: 80, Height: height})
+		lines := strings.Split(ansi.Strip(model.View().Content), "\n")
+		_, treeHeight, _ := layoutHeights(height)
+		rootLine := 1 + headerDividerHeight(height)
+		if treeHeight < stickyRootHeight || !strings.Contains(lines[rootLine], root) {
+			t.Fatalf("height %d root row = %q, want root path %q", height, lines[rootLine], root)
+		}
+	}
+}
+
+func TestMouseWheelAndScrollbarDragScrollWithoutReadingFilesystem(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	entries := make([]filesystem.Entry, 0, 20)
+	for index := 0; index < 20; index++ {
+		entries = append(entries, filesystem.Entry{Name: "file-" + string(rune('a'+index)), Mode: 0})
+	}
+	fake.set(root, entries)
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 32, Height: 7})
+	calls := len(fake.calls())
+	startY := model.treeStartY()
+
+	model.Update(tea.MouseWheelMsg{X: 0, Y: startY, Button: tea.MouseWheelDown})
+	if model.offset != mouseWheelScrollLines || model.selected != 0 {
+		t.Fatalf("wheel-down viewport = selected %d, offset %d; want 0, %d", model.selected, model.offset, mouseWheelScrollLines)
+	}
+	model.Update(tea.MouseWheelMsg{X: 0, Y: startY, Button: tea.MouseWheelUp})
+	if model.offset != 0 || model.selected != 0 {
+		t.Fatalf("wheel-up viewport = selected %d, offset %d; want 0, 0", model.selected, model.offset)
+	}
+	model.Update(tea.MouseWheelMsg{X: 0, Y: startY - 1, Button: tea.MouseWheelDown})
+	if model.offset != 0 || model.selected != 0 {
+		t.Fatalf("outside-tree wheel changed viewport = selected %d, offset %d", model.selected, model.offset)
+	}
+
+	for range 10 {
+		model.Update(tea.MouseWheelMsg{X: 0, Y: startY, Button: tea.MouseWheelDown})
+	}
+	_, treeHeight, _ := layoutHeights(model.height)
+	maxOffset := len(model.visibleRows) - treeHeight
+	if model.offset != maxOffset || model.selected != 0 {
+		t.Fatalf("wheel-to-bottom viewport = selected %d, offset %d; want 0, %d", model.selected, model.offset, maxOffset)
+	}
+	if len(fake.calls()) != calls {
+		t.Fatalf("wheel scrolling changed filesystem calls = %v, want %d", fake.calls(), calls)
+	}
+
+	model.offset = 0
+	model.selected = 0
+	model.Update(tea.MouseClickMsg{X: model.width - 1, Y: startY + stickyRootHeight, Button: tea.MouseLeft})
+	if !model.draggingScrollbar || model.offset != 0 {
+		t.Fatalf("scrollbar press state = dragging %v, offset %d; want true, 0", model.draggingScrollbar, model.offset)
+	}
+	model.Update(tea.MouseMotionMsg{X: model.width - 1, Y: startY + 2, Button: tea.MouseLeft})
+	if model.offset != maxOffset || model.selected != 0 {
+		t.Fatalf("scrollbar drag viewport = selected %d, offset %d; want 0, %d", model.selected, model.offset, maxOffset)
+	}
+	model.Update(tea.MouseReleaseMsg{X: model.width - 1, Y: startY + 2, Button: tea.MouseLeft})
+	if model.draggingScrollbar {
+		t.Fatal("scrollbar release left dragging enabled")
+	}
+	if len(fake.calls()) != calls {
+		t.Fatalf("scrollbar dragging changed filesystem calls = %v, want %d", fake.calls(), calls)
+	}
+}
+
+func TestScrollbarIsVisibleAndTracksTheViewport(t *testing.T) {
+	metrics := newScrollbarMetrics(3, 4, 0)
+	if metrics.thumbSize != 2 || metrics.maxThumbStart() != 1 {
+		t.Fatalf("small-overflow scrollbar metrics = %#v, want thumb size 2 and one track cell", metrics)
+	}
+	if got := metrics.offsetForThumbStart(metrics.maxThumbStart()); got != metrics.maxOffset() {
+		t.Fatalf("bottom thumb offset = %d, want %d", got, metrics.maxOffset())
+	}
+
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	entries := make([]filesystem.Entry, 0, 20)
+	for index := 0; index < 20; index++ {
+		entries = append(entries, filesystem.Entry{Name: "file-" + string(rune('a'+index)), Mode: 0})
+	}
+	fake.set(root, entries)
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 7})
+
+	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
+	startY := model.treeStartY()
+	_, treeHeight, _ := layoutHeights(model.height)
+	scrollHeight := model.scrollableViewportHeight()
+	for row := 0; row < scrollHeight; row++ {
+		line := lines[startY+stickyRootHeight+row]
+		if !strings.HasSuffix(line, scrollbarTrackGlyph) && !strings.HasSuffix(line, scrollbarThumbGlyph) {
+			t.Fatalf("scrollbar row %d = %q, want a scrollbar glyph", row, line)
+		}
+	}
+	if !strings.HasSuffix(lines[startY+stickyRootHeight], scrollbarThumbGlyph) {
+		t.Fatalf("top scrollbar = %q, want thumb", lines[startY+stickyRootHeight])
+	}
+
+	model.offset = len(model.visibleRows) - treeHeight
+	lines = strings.Split(ansi.Strip(model.View().Content), "\n")
+	if !strings.HasSuffix(lines[startY+stickyRootHeight+scrollHeight-1], scrollbarThumbGlyph) {
+		t.Fatalf("bottom scrollbar = %q, want thumb on the last row", lines[startY+stickyRootHeight+scrollHeight-1])
+	}
+	if !strings.Contains(lines[startY], model.tree.Root().Path()) {
+		t.Fatalf("sticky root row = %q, want root path %q", lines[startY], model.tree.Root().Path())
+	}
+}
+
+func TestRootPathStaysStickyWhileDescendantsScroll(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	entries := make([]filesystem.Entry, 0, 12)
+	for index := 0; index < 12; index++ {
+		entries = append(entries, filesystem.Entry{Name: "file-" + string(rune('a'+index)), Mode: 0})
+	}
+	fake.set(root, entries)
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 7})
+
+	startY := model.treeStartY()
+	before := strings.Split(ansi.Strip(model.View().Content), "\n")
+	rootLine := before[startY]
+	if index, ok := model.rowIndexAtY(startY); !ok || index != 0 {
+		t.Fatalf("sticky root hit-test = (%d, %v), want (0, true)", index, ok)
+	}
+	if model.isScrollbarCell(model.width-1, startY) {
+		t.Fatal("sticky root row is incorrectly treated as scrollbar")
+	}
+
+	model.Update(tea.MouseWheelMsg{X: 0, Y: startY, Button: tea.MouseWheelDown})
+	after := strings.Split(ansi.Strip(model.View().Content), "\n")
+	if model.offset == 0 {
+		t.Fatal("wheel over the tree did not scroll descendants")
+	}
+	if after[startY] != rootLine {
+		t.Fatalf("root row after scrolling = %q, want unchanged %q", after[startY], rootLine)
+	}
+}
+
+func TestVimLikeKeysProvideLinePageAndBoundaryNavigation(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	entries := make([]filesystem.Entry, 0, 12)
+	for index := 0; index < 12; index++ {
+		entries = append(entries, filesystem.Entry{Name: "file-" + string(rune('a'+index)), Mode: 0})
+	}
+	fake.set(root, entries)
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 32, Height: 7})
+
+	model.UpdateKey(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	if model.selected != 1 {
+		t.Fatalf("j selected %d, want 1", model.selected)
+	}
+	model.UpdateKey(tea.KeyPressMsg{Code: 'k', Text: "k"})
+	if model.selected != 0 {
+		t.Fatalf("k selected %d, want 0", model.selected)
+	}
+	model.UpdateKey(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	if model.selected != 1 {
+		t.Fatalf("ctrl-d selected %d, want 1", model.selected)
+	}
+	model.UpdateKey(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	if model.selected != 2 {
+		t.Fatalf("ctrl-f selected %d, want 2", model.selected)
+	}
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyHome})
+	if model.selected != 0 || model.offset != 0 {
+		t.Fatalf("home viewport = selected %d, offset %d; want 0, 0", model.selected, model.offset)
+	}
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyEnd})
+	if model.selected != len(model.visibleRows)-1 || model.offset != len(model.visibleRows)-3 {
+		t.Fatalf("end viewport = selected %d, offset %d; want %d, %d", model.selected, model.offset, len(model.visibleRows)-1, len(model.visibleRows)-3)
+	}
+}
+
 func TestViewportFollowsSelectionAndNarrowOrZeroWindowsAreSafe(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeFileSystem()
@@ -500,15 +739,15 @@ func TestViewportFollowsSelectionAndNarrowOrZeroWindowsAreSafe(t *testing.T) {
 	fake.set(root, entries)
 	model := NewModel(root, "", fake)
 	completeInitialLoad(t, model)
-	model.Update(tea.WindowSizeMsg{Width: 24, Height: 4})
+	model.Update(tea.WindowSizeMsg{Width: 24, Height: 6})
 	for index := 0; index < 4; index++ {
 		model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	}
 	if model.selected != 4 || model.offset != 3 {
 		t.Fatalf("viewport state = selected %d, offset %d; want 4, 3", model.selected, model.offset)
 	}
-	if lines := strings.Split(ansi.Strip(model.View().Content), "\n"); len(lines) != 4 {
-		t.Fatalf("viewport view lines = %d, want window height 4: %q", len(lines), model.View().Content)
+	if lines := strings.Split(ansi.Strip(model.View().Content), "\n"); len(lines) != 6 {
+		t.Fatalf("viewport view lines = %d, want window height 6: %q", len(lines), model.View().Content)
 	}
 
 	model.Update(tea.WindowSizeMsg{Width: 1, Height: 1})
@@ -679,17 +918,17 @@ func TestRootRowRendersWithoutChevron(t *testing.T) {
 
 	content := ansi.Strip(model.View().Content)
 	lines := strings.Split(content, "\n")
-	if len(lines) < 2 {
-		t.Fatalf("view lines = %d, want at least 2", len(lines))
+	if len(lines) < 3 {
+		t.Fatalf("view lines = %d, want at least 3", len(lines))
 	}
-	if strings.ContainsAny(lines[1], "▸▾") {
-		t.Fatalf("root row = %q, want no chevron", lines[1])
+	if strings.ContainsAny(lines[2], "▸▾") {
+		t.Fatalf("root row = %q, want no chevron", lines[2])
 	}
-	if !strings.Contains(lines[1], "") {
-		t.Fatalf("root row = %q, want the home icon", lines[1])
+	if !strings.Contains(lines[2], "") {
+		t.Fatalf("root row = %q, want the home icon", lines[2])
 	}
-	if !strings.Contains(lines[1], root) {
-		t.Fatalf("root row = %q, want path %q", lines[1], root)
+	if !strings.Contains(lines[2], root) {
+		t.Fatalf("root row = %q, want path %q", lines[2], root)
 	}
 }
 
@@ -701,7 +940,7 @@ func TestRootMouseClickSelectsWithoutCollapsing(t *testing.T) {
 	completeInitialLoad(t, model)
 	model.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
 
-	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 1, Button: tea.MouseLeft}); cmd != nil {
+	if cmd := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: 2, Button: tea.MouseLeft}); cmd != nil {
 		t.Fatalf("root click returned command %v, want nil", cmd)
 	}
 	if len(model.visibleRows) != 2 || !model.tree.Root().Expanded() || model.selected != 0 {
