@@ -1,10 +1,14 @@
 # Pull request guide
 
 Use this guide for every Issue-to-Draft-PR handoff. Record the actual values
-from the current run; do not turn a run's model assignments into a permanent
-repository rule.
+from the current run; do not turn run-specific values (e.g., model
+assignments) into a permanent repository rule.
 
 ## Required PR body
+
+Use the template below. Include the Orchestration team section only when the
+Issue was developed via Herdr orchestration (pi-issue-pr-workflow); otherwise
+omit that section and its responsibility note entirely.
 
 ```markdown
 ## Scope
@@ -23,6 +27,7 @@ Parent context: #<parent-issue>
 - <include every required check and its actual result>
 
 ## Orchestration team
+<Herdr orchestration only; omit this entire section and the responsibility note below it otherwise>
 | role | assignee | provider | model | thinking |
 | --- | --- | --- | --- | --- |
 | orchestrator | <agent/pane; shared agent if applicable> | <run value> | <run value> | <run value> |
