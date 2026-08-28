@@ -309,8 +309,8 @@ func TestSpaceAndFullWidthSpaceCopyOnlyTheSelectedAbsolutePath(t *testing.T) {
 		if got := clipboardContent(t, cmd); got != root {
 			t.Fatalf("copy key %q copied %q, want root %q", key.String(), got, root)
 		}
-		if model.status != "copied: "+root {
-			t.Fatalf("copy key %q status = %q, want %q", key.String(), model.status, "copied: "+root)
+		if model.status != readyStatus {
+			t.Fatalf("copy key %q status = %q, want unchanged %q", key.String(), model.status, readyStatus)
 		}
 	}
 
@@ -318,16 +318,16 @@ func TestSpaceAndFullWidthSpaceCopyOnlyTheSelectedAbsolutePath(t *testing.T) {
 	if got := clipboardContent(t, model.UpdateKey(tea.KeyPressMsg{Code: tea.KeySpace})); got != directoryPath {
 		t.Fatalf("directory copy = %q, want %q", got, directoryPath)
 	}
-	if model.status != "copied: "+directoryPath {
-		t.Fatalf("directory copy status = %q, want %q", model.status, "copied: "+directoryPath)
+	if model.status != readyStatus {
+		t.Fatalf("directory copy status = %q, want unchanged %q", model.status, readyStatus)
 	}
 
 	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	if got := clipboardContent(t, model.UpdateKey(tea.KeyPressMsg{Code: tea.KeySpace})); got != filePath {
 		t.Fatalf("file copy = %q, want %q", got, filePath)
 	}
-	if model.status != "copied: "+filePath {
-		t.Fatalf("file copy status = %q, want %q", model.status, "copied: "+filePath)
+	if model.status != readyStatus {
+		t.Fatalf("file copy status = %q, want unchanged %q", model.status, readyStatus)
 	}
 }
 
@@ -517,8 +517,11 @@ func TestFooterAndDividerReserveTheBottomOfTheViewport(t *testing.T) {
 	if !strings.Contains(lines[4], dividerGlyph) || lipgloss.Width(lines[4]) != 80 {
 		t.Fatalf("footer divider = %q, want a full-width divider", lines[4])
 	}
-	if !strings.HasPrefix(strings.TrimRight(lines[len(lines)-1], " "), readyStatus) {
-		t.Fatalf("footer = %q, want %q at the bottom", lines[len(lines)-1], readyStatus)
+	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " space copy    q quit" {
+		t.Fatalf("footer = %q, want shortcut hints at the bottom", lines[len(lines)-1])
+	}
+	if !strings.HasPrefix(lines[2], " "+rootTreeIcon+" ") {
+		t.Fatalf("first tree row = %q, want one-cell left padding", lines[2])
 	}
 	if !strings.Contains(lines[2], root) {
 		t.Fatalf("first tree row = %q, want root path %q", lines[2], root)
@@ -554,6 +557,28 @@ func TestFooterAndDividerReserveTheBottomOfTheViewport(t *testing.T) {
 		if treeHeight < stickyRootHeight || !strings.Contains(lines[rootLine], root) {
 			t.Fatalf("height %d root row = %q, want root path %q", height, lines[rootLine], root)
 		}
+	}
+}
+
+func TestFooterShowsOperationalStatusUntilReadyAndShortcutsWhenIdle(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+	model := NewModel(root, "", fake)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
+
+	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    q quit" {
+		t.Fatalf("initial footer = %q, want shortcut hints", got)
+	}
+
+	load := model.Init()
+	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " "+loadingStatus {
+		t.Fatalf("loading footer = %q, want %q", got, loadingStatus)
+	}
+
+	model.Update(load().(browser.LoadResult))
+	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    q quit" {
+		t.Fatalf("ready footer = %q, want shortcut hints", got)
 	}
 }
 

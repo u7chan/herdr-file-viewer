@@ -20,11 +20,19 @@ var (
 	dividerStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	scrollbarTrackStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	scrollbarThumbStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("62"))
+	helpKeyStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255"))
+	helpLabelStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 )
 
 const (
 	loadingStatus         = "Loading directory..."
 	readyStatus           = "Ready"
+	helpCopyKey           = "space"
+	helpCopyLabel         = "copy"
+	helpQuitKey           = "q"
+	helpQuitLabel         = "quit"
+	helpGroupSeparator    = "    "
+	contentLeftPadding    = 1
 	ellipsis              = "…"
 	dividerGlyph          = "─"
 	scrollbarTrackGlyph   = "│"
@@ -178,7 +186,7 @@ func (m *Model) View() tea.View {
 		lines = append(lines, m.renderDivider())
 	}
 	if footerHeight > 0 {
-		lines = append(lines, m.renderLine(m.status))
+		lines = append(lines, m.renderFooter())
 	}
 
 	view := tea.NewView(strings.Join(lines, "\n"))
@@ -194,7 +202,6 @@ func (m *Model) copySelection() tea.Cmd {
 	}
 
 	path := node.Path()
-	m.status = "copied: " + sanitizeDisplay(path)
 	return tea.SetClipboard(path)
 }
 
@@ -621,13 +628,14 @@ func (m *Model) renderTree(treeHeight int) []string {
 	}
 
 	contentWidth := m.treeContentWidth()
+	leftPadding := strings.Repeat(" ", m.contentLeftPadding())
 	lines := make([]string, treeHeight)
 	blankScrollbarCell := " "
 	if m.width <= 0 {
 		blankScrollbarCell = ""
 	}
 	if len(m.visibleRows) > 0 {
-		lines[0] = m.renderRowWidth(0, m.visibleRows[0], contentWidth) + blankScrollbarCell
+		lines[0] = leftPadding + m.renderRowWidth(0, m.visibleRows[0], contentWidth) + blankScrollbarCell
 	}
 
 	scrollHeight := treeHeight - stickyRootHeight
@@ -641,7 +649,7 @@ func (m *Model) renderTree(treeHeight int) []string {
 		if index >= stickyRootHeight && index < len(m.visibleRows) {
 			line = m.renderRowWidth(index, m.visibleRows[index], contentWidth)
 		}
-		lines[rowIndex] = line + m.renderScrollbarCell(rowIndex-stickyRootHeight, metrics)
+		lines[rowIndex] = leftPadding + line + m.renderScrollbarCell(rowIndex-stickyRootHeight, metrics)
 	}
 	return lines
 }
@@ -703,14 +711,37 @@ func (m *Model) renderDivider() string {
 }
 
 func (m *Model) treeContentWidth() int {
-	if m.width <= 1 {
+	width := m.width - 1 - m.contentLeftPadding()
+	if width <= 0 {
 		return 0
 	}
-	return m.width - 1
+	return width
 }
 
 func (m *Model) renderLine(line string) string {
-	return m.renderStyledLine(sanitizeDisplay(line), lipgloss.NewStyle())
+	line = strings.Repeat(" ", m.contentLeftPadding()) + sanitizeDisplay(line)
+	return m.renderStyledLine(line, lipgloss.NewStyle())
+}
+
+func (m *Model) contentLeftPadding() int {
+	if m.width <= 1 {
+		return 0
+	}
+	return contentLeftPadding
+}
+
+func (m *Model) renderFooter() string {
+	if m.status != readyStatus {
+		return m.renderLine(m.status)
+	}
+
+	help := renderShortcut(helpCopyKey, helpCopyLabel) + helpGroupSeparator + renderShortcut(helpQuitKey, helpQuitLabel)
+	help = strings.Repeat(" ", m.contentLeftPadding()) + help
+	return m.renderStyledLine(help, lipgloss.NewStyle())
+}
+
+func renderShortcut(key, label string) string {
+	return helpKeyStyle.Inline(true).Render(key) + " " + helpLabelStyle.Inline(true).Render(label)
 }
 
 func (m *Model) renderStyledLine(line string, style lipgloss.Style) string {
