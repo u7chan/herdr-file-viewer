@@ -15,14 +15,22 @@ import (
 )
 
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62"))
-	selectedStyle = lipgloss.NewStyle().Background(lipgloss.Color("238"))
+	titleStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Align(lipgloss.Center)
+	selectedStyle       = lipgloss.NewStyle().Background(lipgloss.Color("238"))
+	dividerStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	scrollbarTrackStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	scrollbarThumbStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("62"))
 )
 
 const (
-	loadingStatus = "Loading directory..."
-	readyStatus   = "Ready"
-	ellipsis      = "…"
+	loadingStatus         = "Loading directory..."
+	readyStatus           = "Ready"
+	ellipsis              = "…"
+	dividerGlyph          = "─"
+	scrollbarTrackGlyph   = "│"
+	scrollbarThumbGlyph   = "┃"
+	mouseWheelScrollLines = 3
+	stickyRootHeight      = 1
 )
 
 // Model owns UI state and delegates all filesystem work to commands that read
@@ -41,6 +49,9 @@ type Model struct {
 
 	loading bool
 	status  string
+
+	draggingScrollbar   bool
+	dragScrollbarOffset int
 }
 
 // NewModel constructs the tree without reading the filesystem. A filesystem
@@ -98,10 +109,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "space", "\u3000":
 			return m, m.copySelection()
-		case "up":
+		case "up", "k":
 			m.moveSelection(-1)
-		case "down":
+		case "down", "j":
 			m.moveSelection(1)
+		case "ctrl+u":
+			m.moveSelection(-m.halfPageSize())
+		case "ctrl+d":
+			m.moveSelection(m.halfPageSize())
+		case "ctrl+b", "pgup":
+			m.moveSelection(-m.pageSize())
+		case "ctrl+f", "pgdown":
+			m.moveSelection(m.pageSize())
+		case "home":
+			m.selectBoundary(false)
+		case "end":
+			m.selectBoundary(true)
 		case "right":
 			return m, m.expandSelection()
 		case "left":
@@ -111,11 +134,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.MouseClickMsg:
 		return m, m.handleMouseClick(msg)
+	case tea.MouseMotionMsg:
+		m.handleMouseMotion(msg)
+	case tea.MouseReleaseMsg:
+		m.handleMouseRelease()
+	case tea.MouseWheelMsg:
+		m.handleMouseWheel(msg)
 	case tea.InterruptMsg:
 		return m, tea.Quit
 	case tea.WindowSizeMsg:
 		m.width = nonNegative(msg.Width)
 		m.height = nonNegative(msg.Height)
+		m.draggingScrollbar = false
 		m.keepSelectionVisible()
 	}
 	return m, nil
@@ -131,15 +161,23 @@ func (m *Model) View() tea.View {
 		return view
 	}
 
-	headerHeight, treeHeight, statusHeight := layoutHeights(m.height)
-	lines := make([]string, 0, headerHeight+treeHeight+statusHeight)
+	headerHeight, treeHeight, footerHeight := layoutHeights(m.height)
+	topDividerHeight := headerDividerHeight(m.height)
+	bottomDividerHeight := footerDividerHeight(m.height)
+	lines := make([]string, 0, headerHeight+topDividerHeight+treeHeight+bottomDividerHeight+footerHeight)
 	if headerHeight > 0 {
 		lines = append(lines, m.renderStyledLine("Herdr File Viewer", titleStyle))
+	}
+	if topDividerHeight > 0 {
+		lines = append(lines, m.renderDivider())
 	}
 	if treeHeight > 0 {
 		lines = append(lines, m.renderTree(treeHeight)...)
 	}
-	if statusHeight > 0 {
+	if bottomDividerHeight > 0 {
+		lines = append(lines, m.renderDivider())
+	}
+	if footerHeight > 0 {
 		lines = append(lines, m.renderLine(m.status))
 	}
 
@@ -162,6 +200,10 @@ func (m *Model) copySelection() tea.Cmd {
 
 func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 	if msg.Button != tea.MouseLeft {
+		return nil
+	}
+	if m.isScrollbarCell(msg.X, msg.Y) {
+		m.beginScrollbarDrag(msg.Y)
 		return nil
 	}
 
@@ -191,17 +233,136 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 	return m.startLoad(request)
 }
 
+func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) {
+	if !m.isTreeY(msg.Y) {
+		return
+	}
+
+	switch msg.Button {
+	case tea.MouseWheelUp:
+		m.scrollBy(-mouseWheelScrollLines)
+	case tea.MouseWheelDown:
+		m.scrollBy(mouseWheelScrollLines)
+	}
+}
+
+func (m *Model) handleMouseMotion(msg tea.MouseMotionMsg) {
+	if !m.draggingScrollbar {
+		return
+	}
+
+	scrollHeight := m.scrollableViewportHeight()
+	metrics := newScrollbarMetrics(scrollHeight, m.scrollableRowCount(), m.offset)
+	if metrics.maxThumbStart() == 0 {
+		m.draggingScrollbar = false
+		return
+	}
+
+	startY := m.scrollableStartY()
+	localY := msg.Y - startY - m.dragScrollbarOffset
+	if localY < 0 {
+		localY = 0
+	}
+	if max := metrics.maxThumbStart(); localY > max {
+		localY = max
+	}
+	m.offset = metrics.offsetForThumbStart(localY)
+	m.clampSelectionToViewport()
+}
+
+func (m *Model) handleMouseRelease() {
+	m.draggingScrollbar = false
+}
+
+func (m *Model) beginScrollbarDrag(y int) {
+	scrollHeight := m.scrollableViewportHeight()
+	metrics := newScrollbarMetrics(scrollHeight, m.scrollableRowCount(), m.offset)
+	if metrics.maxThumbStart() == 0 {
+		return
+	}
+
+	localY := y - m.scrollableStartY()
+	if localY < 0 || localY >= scrollHeight {
+		return
+	}
+
+	grabOffset := metrics.thumbSize / 2
+	if localY >= metrics.thumbStart && localY < metrics.thumbStart+metrics.thumbSize {
+		grabOffset = localY - metrics.thumbStart
+	}
+	thumbStart := localY - grabOffset
+	if thumbStart < 0 {
+		thumbStart = 0
+	}
+	if max := metrics.maxThumbStart(); thumbStart > max {
+		thumbStart = max
+	}
+	m.offset = metrics.offsetForThumbStart(thumbStart)
+	m.clampSelectionToViewport()
+	m.draggingScrollbar = true
+	m.dragScrollbarOffset = grabOffset
+}
+
+func (m *Model) isScrollbarCell(x, y int) bool {
+	return m.width > 0 && x == m.width-1 && m.isScrollableTreeY(y)
+}
+
+func (m *Model) isTreeY(y int) bool {
+	_, treeHeight, _ := layoutHeights(m.height)
+	startY := m.treeStartY()
+	return treeHeight > 0 && y >= startY && y < startY+treeHeight
+}
+
+func (m *Model) treeStartY() int {
+	headerHeight, _, _ := layoutHeights(m.height)
+	return headerHeight + headerDividerHeight(m.height)
+}
+
+func (m *Model) scrollableStartY() int {
+	return m.treeStartY() + stickyRootHeight
+}
+
+func (m *Model) isScrollableTreeY(y int) bool {
+	scrollHeight := m.scrollableViewportHeight()
+	startY := m.scrollableStartY()
+	return scrollHeight > 0 && y >= startY && y < startY+scrollHeight
+}
+
+func (m *Model) scrollableViewportHeight() int {
+	_, treeHeight, _ := layoutHeights(m.height)
+	if treeHeight <= stickyRootHeight || len(m.visibleRows) == 0 {
+		return 0
+	}
+	return treeHeight - stickyRootHeight
+}
+
+func (m *Model) scrollableRowCount() int {
+	if len(m.visibleRows) <= stickyRootHeight {
+		return 0
+	}
+	return len(m.visibleRows) - stickyRootHeight
+}
+
 func (m *Model) rowIndexAtY(y int) (int, bool) {
 	if y < 0 {
 		return 0, false
 	}
 
-	headerHeight, treeHeight, _ := layoutHeights(m.height)
-	if treeHeight <= 0 || y < headerHeight || y >= headerHeight+treeHeight {
+	_, treeHeight, _ := layoutHeights(m.height)
+	startY := m.treeStartY()
+	if treeHeight <= 0 || y < startY || y >= startY+treeHeight {
 		return 0, false
 	}
 
-	index := m.offset + y - headerHeight
+	localY := y - startY
+	if localY == 0 && len(m.visibleRows) > 0 {
+		return 0, true
+	}
+	if localY < stickyRootHeight || localY >= stickyRootHeight+m.scrollableViewportHeight() {
+		return 0, false
+	}
+
+	index := stickyRootHeight + m.offset + localY - stickyRootHeight
 	if index < 0 || index >= len(m.visibleRows) {
 		return 0, false
 	}
@@ -289,6 +450,53 @@ func (m *Model) moveSelection(delta int) {
 	m.keepSelectionVisible()
 }
 
+func (m *Model) selectBoundary(last bool) {
+	if len(m.visibleRows) == 0 {
+		return
+	}
+	if last {
+		m.selected = len(m.visibleRows) - 1
+	} else {
+		m.selected = 0
+	}
+	m.keepSelectionVisible()
+}
+
+func (m *Model) halfPageSize() int {
+	scrollHeight := m.scrollableViewportHeight()
+	if scrollHeight < 2 {
+		return 1
+	}
+	return scrollHeight / 2
+}
+
+func (m *Model) pageSize() int {
+	scrollHeight := m.scrollableViewportHeight()
+	if scrollHeight < 2 {
+		return 1
+	}
+	return scrollHeight - 1
+}
+
+func (m *Model) scrollBy(delta int) {
+	if len(m.visibleRows) == 0 || delta == 0 {
+		return
+	}
+
+	scrollHeight := m.scrollableViewportHeight()
+	if scrollHeight <= 0 {
+		return
+	}
+	m.clampSelectionToViewport()
+	previous := m.offset
+	m.offset = m.clampOffset(m.offset+delta, scrollHeight)
+	actualDelta := m.offset - previous
+	if actualDelta != 0 && m.selected != 0 {
+		m.selected += actualDelta
+		m.clampSelectionToViewport()
+	}
+}
+
 func (m *Model) selectedNode() *browser.Node {
 	if m.selected < 0 || m.selected >= len(m.visibleRows) {
 		return nil
@@ -340,55 +548,106 @@ func (m *Model) keepSelectionVisible() {
 		m.selected = len(m.visibleRows) - 1
 	}
 
-	_, treeHeight, _ := layoutHeights(m.height)
-	if treeHeight <= 0 {
+	scrollHeight := m.scrollableViewportHeight()
+	if scrollHeight <= 0 {
 		m.offset = 0
 		return
 	}
-	if m.selected < m.offset {
-		m.offset = m.selected
+	m.offset = m.clampOffset(m.offset, scrollHeight)
+	if m.selected == 0 {
+		return
 	}
-	if m.selected >= m.offset+treeHeight {
-		m.offset = m.selected - treeHeight + 1
+	selectedOffset := m.selected - stickyRootHeight
+	if selectedOffset < m.offset {
+		m.offset = selectedOffset
 	}
-	maxOffset := len(m.visibleRows) - treeHeight
-	if maxOffset < 0 {
-		maxOffset = 0
+	if selectedOffset >= m.offset+scrollHeight {
+		m.offset = selectedOffset - scrollHeight + 1
 	}
-	if m.offset < 0 {
+	m.offset = m.clampOffset(m.offset, scrollHeight)
+}
+
+func (m *Model) clampSelectionToViewport() {
+	if len(m.visibleRows) == 0 {
+		m.selected = 0
 		m.offset = 0
+		return
 	}
-	if m.offset > maxOffset {
-		m.offset = maxOffset
+
+	if m.selected < 0 {
+		m.selected = 0
+	}
+	if m.selected >= len(m.visibleRows) {
+		m.selected = len(m.visibleRows) - 1
+	}
+	scrollHeight := m.scrollableViewportHeight()
+	if scrollHeight <= 0 {
+		return
+	}
+	m.offset = m.clampOffset(m.offset, scrollHeight)
+	if m.selected == 0 {
+		return
+	}
+	selectedOffset := m.selected - stickyRootHeight
+	if selectedOffset < m.offset {
+		m.selected = m.offset + stickyRootHeight
+	}
+	if selectedOffset >= m.offset+scrollHeight {
+		m.selected = m.offset + scrollHeight - 1 + stickyRootHeight
+	}
+	if m.selected >= len(m.visibleRows) {
+		m.selected = len(m.visibleRows) - 1
 	}
 }
 
+func (m *Model) clampOffset(offset, scrollHeight int) int {
+	rowCount := m.scrollableRowCount()
+	if scrollHeight <= 0 || rowCount <= scrollHeight {
+		return 0
+	}
+	maxOffset := rowCount - scrollHeight
+	if offset < 0 {
+		return 0
+	}
+	if offset > maxOffset {
+		return maxOffset
+	}
+	return offset
+}
+
 func (m *Model) renderTree(treeHeight int) []string {
-	if treeHeight <= 0 || len(m.visibleRows) == 0 {
+	if treeHeight <= 0 {
 		return nil
 	}
 
-	start := m.offset
-	if start < 0 {
-		start = 0
+	contentWidth := m.treeContentWidth()
+	lines := make([]string, treeHeight)
+	blankScrollbarCell := " "
+	if m.width <= 0 {
+		blankScrollbarCell = ""
 	}
-	if start >= len(m.visibleRows) {
-		start = len(m.visibleRows) - 1
-	}
-	end := start + treeHeight
-	if end > len(m.visibleRows) {
-		end = len(m.visibleRows)
+	if len(m.visibleRows) > 0 {
+		lines[0] = m.renderRowWidth(0, m.visibleRows[0], contentWidth) + blankScrollbarCell
 	}
 
-	lines := make([]string, 0, end-start)
-	for index := start; index < end; index++ {
-		lines = append(lines, m.renderRow(index, m.visibleRows[index]))
+	scrollHeight := treeHeight - stickyRootHeight
+	if scrollHeight <= 0 {
+		return lines
+	}
+	metrics := newScrollbarMetrics(scrollHeight, m.scrollableRowCount(), m.offset)
+	for rowIndex := stickyRootHeight; rowIndex < len(lines); rowIndex++ {
+		index := stickyRootHeight + metrics.offset + rowIndex - stickyRootHeight
+		line := strings.Repeat(" ", contentWidth)
+		if index >= stickyRootHeight && index < len(m.visibleRows) {
+			line = m.renderRowWidth(index, m.visibleRows[index], contentWidth)
+		}
+		lines[rowIndex] = line + m.renderScrollbarCell(rowIndex-stickyRootHeight, metrics)
 	}
 	return lines
 }
 
-func (m *Model) renderRow(index int, row browser.VisibleRow) string {
-	if m.width <= 0 || row.Node == nil {
+func (m *Model) renderRowWidth(index int, row browser.VisibleRow, width int) string {
+	if width <= 0 || row.Node == nil {
 		return ""
 	}
 
@@ -402,7 +661,7 @@ func (m *Model) renderRow(index int, row browser.VisibleRow) string {
 	name = sanitizeDisplay(name)
 	if isRoot {
 		rootPrefix := rootTreeIcon + " "
-		name = rootPrefix + truncateRootPath(name, m.width-lipgloss.Width(rootPrefix))
+		name = rootPrefix + truncateRootPath(name, width-lipgloss.Width(rootPrefix))
 	} else {
 		icon := iconForNode(row.Node, icons)
 		if row.Node.IsDirectory() {
@@ -422,7 +681,32 @@ func (m *Model) renderRow(index int, row browser.VisibleRow) string {
 	if index == m.selected {
 		style = selectedStyle.Inline(true)
 	}
-	return style.Width(m.width).Render(truncateToWidth(name, m.width))
+	return style.Width(width).Render(truncateToWidth(name, width))
+}
+
+func (m *Model) renderScrollbarCell(row int, metrics scrollbarMetrics) string {
+	if m.width <= 0 {
+		return ""
+	}
+
+	glyph := scrollbarTrackGlyph
+	style := scrollbarTrackStyle
+	if metrics.isThumbRow(row) {
+		glyph = scrollbarThumbGlyph
+		style = scrollbarThumbStyle
+	}
+	return style.Inline(true).Render(glyph)
+}
+
+func (m *Model) renderDivider() string {
+	return m.renderStyledLine(strings.Repeat(dividerGlyph, m.width), dividerStyle)
+}
+
+func (m *Model) treeContentWidth() int {
+	if m.width <= 1 {
+		return 0
+	}
+	return m.width - 1
 }
 
 func (m *Model) renderLine(line string) string {
@@ -498,7 +782,7 @@ func (m *Model) readyStatus() string {
 	return readyStatus
 }
 
-func layoutHeights(height int) (header, tree, status int) {
+func layoutHeights(height int) (header, tree, footer int) {
 	height = nonNegative(height)
 	if height == 0 {
 		return 0, 0, 0
@@ -507,9 +791,100 @@ func layoutHeights(height int) (header, tree, status int) {
 	if height == 1 {
 		return header, 0, 0
 	}
-	status = 1
-	tree = height - header - status
-	return header, tree, status
+	footer = 1
+	tree = height - header - headerDividerHeight(height) - footerDividerHeight(height) - footer
+	return header, tree, footer
+}
+
+func headerDividerHeight(height int) int {
+	if nonNegative(height) >= 4 {
+		return 1
+	}
+	return 0
+}
+
+func footerDividerHeight(height int) int {
+	if nonNegative(height) >= 3 {
+		return 1
+	}
+	return 0
+}
+
+type scrollbarMetrics struct {
+	viewport   int
+	total      int
+	offset     int
+	thumbStart int
+	thumbSize  int
+}
+
+func newScrollbarMetrics(viewport, total, offset int) scrollbarMetrics {
+	metrics := scrollbarMetrics{
+		viewport: viewport,
+		total:    total,
+		offset:   offset,
+	}
+	if viewport <= 0 || total <= 0 {
+		return metrics
+	}
+	if metrics.offset < 0 {
+		metrics.offset = 0
+	}
+	maxOffset := metrics.maxOffset()
+	if metrics.offset > maxOffset {
+		metrics.offset = maxOffset
+	}
+	if total <= viewport {
+		metrics.thumbSize = viewport
+		return metrics
+	}
+
+	thumbSize := int64(viewport) * int64(viewport) / int64(total)
+	if thumbSize < 1 {
+		thumbSize = 1
+	}
+	if viewport > 1 && thumbSize >= int64(viewport) {
+		// Keep at least one track cell for every overflowing viewport.
+		thumbSize = int64(viewport - 1)
+	}
+	metrics.thumbSize = int(thumbSize)
+	maxThumbStart := metrics.maxThumbStart()
+	if maxThumbStart > 0 && maxOffset > 0 {
+		metrics.thumbStart = int(int64(metrics.offset) * int64(maxThumbStart) / int64(maxOffset))
+	}
+	return metrics
+}
+
+func (s scrollbarMetrics) maxOffset() int {
+	if s.total <= s.viewport {
+		return 0
+	}
+	return s.total - s.viewport
+}
+
+func (s scrollbarMetrics) maxThumbStart() int {
+	if s.viewport <= 0 || s.thumbSize >= s.viewport {
+		return 0
+	}
+	return s.viewport - s.thumbSize
+}
+
+func (s scrollbarMetrics) isThumbRow(row int) bool {
+	return row >= s.thumbStart && row < s.thumbStart+s.thumbSize
+}
+
+func (s scrollbarMetrics) offsetForThumbStart(thumbStart int) int {
+	maxThumbStart := s.maxThumbStart()
+	if maxThumbStart <= 0 {
+		return 0
+	}
+	if thumbStart < 0 {
+		thumbStart = 0
+	}
+	if thumbStart > maxThumbStart {
+		thumbStart = maxThumbStart
+	}
+	return int(int64(thumbStart) * int64(s.maxOffset()) / int64(maxThumbStart))
 }
 
 func nonNegative(value int) int {

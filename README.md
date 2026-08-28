@@ -6,15 +6,16 @@
 
 The read-only file viewer plugin for Herdr resolves its launch root once and
 shows a lazy, keyboard-driven filesystem tree. Directory reads run
-asynchronously so navigation and resize remain responsive.
+asynchronously so navigation, scrolling, and resize remain responsive.
 
 ## Minimum scope
 
 This is the minimum, read-only viewer used inside a Herdr pane. It supports
 lazy directory expansion, cell-aware single-line rendering, recoverable
-directory errors, symlink-as-entry handling, keyboard navigation, left-click
-selection/toggle, and OSC 52 path copying. It does not provide preview,
-external actions, editing, install/distribution automation, or release tags.
+directory errors, symlink-as-entry handling, keyboard and mouse scrolling,
+visible scrollbar dragging, left-click selection/toggle, and OSC 52 path
+copying. It does not provide preview, external actions, editing,
+install/distribution automation, or release tags.
 
 The supported validation target is Linux under WSL2 with Herdr 0.8.2 or newer.
 Native macOS and Windows validation is out of scope. A terminal used for
@@ -73,14 +74,28 @@ viewer reports a warning and falls back to the workspace or process cwd.
 
 ### Operations
 
-- `Up` / `Down`: move the selection without reading the filesystem.
+- `Up` / `Down` or `j` / `k`: move the selection one row without reading the filesystem; the viewport follows it.
+- `Ctrl+u` / `Ctrl+d`: move by half a viewport.
+- `Ctrl+b` / `Ctrl+f` or `PageUp` / `PageDown`: move by one viewport with a one-row overlap.
+- `Home` / `End`: move to the first / last visible row.
 - `Right` / `Left`: expand/collapse a directory or move to its parent.
 - Left click: toggle a directory; files, symlinks, and the root are selection-only.
+- Mouse wheel over the tree: scroll three rows per wheel event.
+- The rightmost tree column is a scrollbar. Click its track to jump, or drag its thumb to scroll. Scrollbar movement keeps the selected row in the viewport and does not read the filesystem.
 - `Space` / full-width `U+3000`: copy the selected absolute path through OSC 52.
 - `Enter`: reserved for a future action and intentionally has no effect.
-- Mouse wheel, right click, and other unassigned input: no effect.
+- Right click and other unassigned input: no effect.
 - `q` / `Ctrl+C`: quit. Bubble Tea restores the alternate screen, mouse mode,
   cursor, and input state when the pane exits.
+
+The title occupies the first row and is centered within the pane. On a normal
+pane, a full-width `─` divider follows the title and another one separates the
+tree from the bottom-fixed Footer. The root HOME path is pinned immediately
+below the title divider; only its descendants scroll. The Footer contains
+`Ready`, loading, warning, copy, or error status. Very small panes omit
+dividers when there is no room for them.
+The divider and scrollbar use portable box-drawing/block glyphs rather than a
+Nerd Font-specific glyph; the file tree icons remain Nerd Font glyphs.
 
 Names containing C0/C1 controls, ESC, invalid UTF-8, CJK, emoji, or combining
 characters are sanitized and truncated by terminal cell width. Widths 0, 1,
