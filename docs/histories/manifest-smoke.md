@@ -31,14 +31,13 @@ herdr plugin action invoke u7chan.file-viewer.open-file-viewer
 PASS: action invocation returned `plugin-log-8`; Herdr opened Files pane
       `wY:p19` in a right split and the log finished with `status=succeeded`.
 The action result reported `focused_pane_id=wY:p1`,
-`focused_pane_cwd=/home/u7dev/workspace/herdr-file-viewer`, and
+`focused_pane_cwd=<repo_root>`, and
 `workspace_id=wY`.
 
 herdr plugin pane open --plugin u7chan.file-viewer --entrypoint files \
   --placement split --direction right --no-focus
 PASS: direct pane opening returned Files pane `wY:p18`; its process was
-      `./bin/herdr-file-viewer` and its initial root was
-      `/home/u7dev/workspace/herdr-file-viewer`.
+      `./bin/herdr-file-viewer` and its initial root was `<repo_root>`.
 
 herdr pane send-keys wY:p18 q
 herdr pane send-keys wY:p19 q

@@ -45,7 +45,7 @@ herdr plugin link "$PWD"
 
 ```text
 plugin_id=u7chan.file-viewer
-manifest_path=/home/u7dev/workspace/herdr-file-viewer/herdr-plugin.toml
+manifest_path=<repo_root>/herdr-plugin.toml
 min_herdr_version=0.8.2
 platforms=["linux"]
 panes=[{id=files,title=Files,placement=split,command=["./bin/herdr-file-viewer"]}]
@@ -97,12 +97,12 @@ symlink、permission denied directory、消失させる directory を含めた�
 | 1 | local plugin link | **PASS**。上記 `plugin_linked` の出力。 |
 | 2 | manifest warning | **PASS**。link/list の manifest に warning なし。 |
 | 3 | 明示対象 pane、right split、`files` entrypoint、focus | **PASS**。`wY:pT` の open 結果と layout。 |
-| 4 | 起動時 root snapshot | **PASS**。`/proc/<pid>/environ` の `HERDR_PLUGIN_CONTEXT_JSON` が `focused_pane_cwd=/home/u7dev/workspace/herdr-file-viewer`、初期表示も同 root。 |
+| 4 | 起動時 root snapshot | **PASS**。`/proc/<pid>/environ` の `HERDR_PLUGIN_CONTEXT_JSON` が `focused_pane_cwd=<repo_root>`、初期表示も同 root。 |
 | 5 | missing / invalid context と fallback | **PASS**。同じ静的 binary を WSL2 pty で context 無し、`not json`、unavailable candidates で起動し、各 warning を表示して `q` で exit 0。通常テストの `ResolveRootAt` でも process fallback を確認。 |
 | 6 | 起動後 focus 変更 | **PASS**。`herdr agent focus wY:p1` → `herdr plugin pane focus wY:pT` の後も root は変化せず、起動時 snapshot を保持。 |
 | 7 | root load、lazy expand、collapse、parent、selection scroll | **PASS**。`.git` → `objects` の lazy expand、`left` の parent/collapse、30 回の down 後に viewport 上端が root から `logs/objects` へ移動した出力を確認。 |
 | 8 | left click | **PASS**。SGR mouse click を `herdr pane send-text` で送り、`plain-file.txt` の selection-only と `large` の toggle + `alpha` 表示を確認。 |
-| 9 | Space / `U+3000` の OSC 52 | **PASS**。最新 head で focused `wY:pW` の `README.md`（期待値 `/home/u7dev/workspace/herdr-file-viewer/README.md`）を選択し、Space と full-width space の両方を実機送信した。Space は `herdr pane send-keys wY:pW space`、U+3000 は `herdr pane send-text wY:pW '　'`（送信 bytes `e3 80 80`）を使い、それぞれ直後に `powershell.exe -NoProfile -NonInteractive -Command 'Get-Clipboard'` を実行。両方とも期待値と完全一致した。full-width space は自動テストでも同一分岐を確認。 |
+| 9 | Space / `U+3000` の OSC 52 | **PASS**。最新 head で focused `wY:pW` の `README.md`（期待値 `<repo_root>/README.md`）を選択し、Space と full-width space の両方を実機送信した。Space は `herdr pane send-keys wY:pW space`、U+3000 は `herdr pane send-text wY:pW '　'`（送信 bytes `e3 80 80`）を使い、それぞれ直後に `powershell.exe -NoProfile -NonInteractive -Command 'Get-Clipboard'` を実行。両方とも期待値と完全一致した。full-width space は自動テストでも同一分岐を確認。 |
 | 10 | Enter、wheel、right-click、未割当入力 | **PASS**。`enter`、SGR wheel/right-click、`x` の後も tree/status が変化せず `Ready`。 |
 | 11 | resize、極狭、hidden、symlink、permission、Unicode/control | **PASS**。width 6 の pane で `Herd`、`▾ /h`、`▸` のみの安全な表示。permission denied と retry 後の `secret`、消失 directory と再作成後の `before`、symlink の非展開、`control-�-�-tab�-name`、CJK/emoji/combining を確認。 |
 | 12 | `q` / Ctrl+C と terminal 復元 | **PASS**。`wY:pT` は `q`、`wY:pV` は `ctrl+c` で pane が消え、focus が `wY:p1` に戻り、`wY:p1`/`wY:pQ`/`wY:pP` は存続。別 pty の ANSI 証拠でも `?1049h/l`、`?25l/h`、`?1002l`、`?1003l`、`?1006l` を確認。 |
