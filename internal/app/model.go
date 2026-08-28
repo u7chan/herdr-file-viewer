@@ -2,11 +2,13 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/clipperhouse/uax29/v2/graphemes"
 
 	"github.com/u7chan/herdr-file-viewer/internal/browser"
 	"github.com/u7chan/herdr-file-viewer/internal/filesystem"
@@ -390,6 +392,7 @@ func (m *Model) renderRow(index int, row browser.VisibleRow) string {
 		return ""
 	}
 
+	icons := iconsFor(defaultTreeIconSet)
 	indent := strings.Repeat("  ", row.Depth)
 	isRoot := row.Node.Parent() == nil
 	name := row.Node.Name()
@@ -397,15 +400,19 @@ func (m *Model) renderRow(index int, row browser.VisibleRow) string {
 		name = row.Node.Path()
 	}
 	name = sanitizeDisplay(name)
-	if !isRoot {
+	if isRoot {
+		rootPrefix := rootTreeIcon + " "
+		name = rootPrefix + truncateRootPath(name, m.width-lipgloss.Width(rootPrefix))
+	} else {
+		icon := iconForNode(row.Node, icons)
 		if row.Node.IsDirectory() {
-			chevron := "▸"
+			chevron := collapsedTreeIcon
 			if row.Node.Expanded() {
-				chevron = "▾"
+				chevron = expandedTreeIcon
 			}
-			name = indent + chevron + " " + name
+			name = indent + chevron + " " + icon + " " + name
 		} else {
-			name = indent + "  " + name
+			name = indent + "  " + icon + " " + name
 		}
 	}
 	// The root row is the fixed current-path display: it cannot be collapsed
@@ -437,6 +444,51 @@ func truncateToWidth(value string, width int) string {
 		return value
 	}
 	return ansi.Truncate(value, width, ellipsis)
+}
+
+func truncateRootPath(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(value) <= width {
+		return value
+	}
+
+	pathPrefix := ellipsis + string(filepath.Separator)
+	if width <= lipgloss.Width(pathPrefix) {
+		return truncateToWidth(pathPrefix, width)
+	}
+
+	suffix := truncateTailToWidth(value, width-lipgloss.Width(pathPrefix))
+	suffix = strings.TrimPrefix(suffix, string(filepath.Separator))
+	return pathPrefix + suffix
+}
+
+func truncateTailToWidth(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	valueWidth := lipgloss.Width(value)
+	if valueWidth <= width {
+		return value
+	}
+
+	// TruncateLeft keeps the grapheme that straddles the cut boundary whole,
+	// so the tail can exceed the budget by one wide cluster. Drop leading
+	// graphemes until the tail fits the budget.
+	tail := ansi.TruncateLeft(value, valueWidth-width, "")
+	for lipgloss.Width(tail) > width {
+		tail = dropFirstGrapheme(tail)
+	}
+	return tail
+}
+
+func dropFirstGrapheme(value string) string {
+	iter := graphemes.FromString(value)
+	if iter.Next() {
+		return value[len(iter.Value()):]
+	}
+	return value
 }
 
 func (m *Model) readyStatus() string {

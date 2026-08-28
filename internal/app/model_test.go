@@ -620,6 +620,55 @@ func TestTruncateToWidthAddsEllipsis(t *testing.T) {
 	}
 }
 
+func TestTruncateRootPathPreservesTheRootDirectoryName(t *testing.T) {
+	path := "/home/user/workspace/herdr-file-viewer"
+
+	if got := truncateRootPath(path, lipgloss.Width(path)); got != path {
+		t.Fatalf("full-width root path = %q, want unchanged path %q", got, path)
+	}
+	if got := truncateRootPath(path, 19); got != "…/herdr-file-viewer" {
+		t.Fatalf("narrow root path = %q, want %q", got, "…/herdr-file-viewer")
+	}
+	if got := truncateRootPath(path, 30); got != "…/workspace/herdr-file-viewer" {
+		t.Fatalf("progressive root path = %q, want %q", got, "…/workspace/herdr-file-viewer")
+	}
+	for width := 0; width <= 19; width++ {
+		if got := lipgloss.Width(truncateRootPath(path, width)); got > width {
+			t.Errorf("root path width %d = %d, want <= %d", width, got, width)
+		}
+	}
+}
+
+func TestTruncateRootPathPreservesWideRootDirectoryName(t *testing.T) {
+	path := "/home/日本語/長いディレクトリ名"
+
+	if got := truncateRootPath(path, 20); got != "…/長いディレクトリ名" {
+		t.Fatalf("wide root path = %q, want %q", got, "…/長いディレクトリ名")
+	}
+	// The cut boundary lands inside the last component; the straddling
+	// grapheme is dropped so the tail still fits the budget.
+	if got := truncateRootPath(path, 19); got != "…/いディレクトリ名" {
+		t.Fatalf("straddling root path = %q, want %q", got, "…/いディレクトリ名")
+	}
+}
+
+func TestTruncateRootPathStaysWithinWidthForWideCharacters(t *testing.T) {
+	paths := []string{
+		"/home/日本語/長いディレクトリ名",
+		"/home/emoji🙂/dir",
+		"/home/user/e\u0301-combining/名前",
+		"/home/👨‍👩‍👧‍👦/家族",
+	}
+	for _, path := range paths {
+		width := lipgloss.Width(path)
+		for want := 0; want <= width; want++ {
+			if got := lipgloss.Width(truncateRootPath(path, want)); got > want {
+				t.Errorf("truncateRootPath(%q, %d) width = %d, want <= %d", path, want, got, want)
+			}
+		}
+	}
+}
+
 func TestRootRowRendersWithoutChevron(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeFileSystem()
@@ -633,8 +682,11 @@ func TestRootRowRendersWithoutChevron(t *testing.T) {
 	if len(lines) < 2 {
 		t.Fatalf("view lines = %d, want at least 2", len(lines))
 	}
-	if strings.ContainsAny(lines[1], "▸▾") {
+	if strings.ContainsAny(lines[1], "▸▾") {
 		t.Fatalf("root row = %q, want no chevron", lines[1])
+	}
+	if !strings.Contains(lines[1], "") {
+		t.Fatalf("root row = %q, want the home icon", lines[1])
 	}
 	if !strings.Contains(lines[1], root) {
 		t.Fatalf("root row = %q, want path %q", lines[1], root)
