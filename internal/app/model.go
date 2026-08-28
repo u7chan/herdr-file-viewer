@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/clipperhouse/uax29/v2/graphemes"
 
 	"github.com/u7chan/herdr-file-viewer/internal/browser"
 	"github.com/u7chan/herdr-file-viewer/internal/filesystem"
@@ -471,7 +472,23 @@ func truncateTailToWidth(value string, width int) string {
 	if valueWidth <= width {
 		return value
 	}
-	return ansi.TruncateLeft(value, valueWidth-width, "")
+
+	// TruncateLeft keeps the grapheme that straddles the cut boundary whole,
+	// so the tail can exceed the budget by one wide cluster. Drop leading
+	// graphemes until the tail fits the budget.
+	tail := ansi.TruncateLeft(value, valueWidth-width, "")
+	for lipgloss.Width(tail) > width {
+		tail = dropFirstGrapheme(tail)
+	}
+	return tail
+}
+
+func dropFirstGrapheme(value string) string {
+	iter := graphemes.FromString(value)
+	if iter.Next() {
+		return value[len(iter.Value()):]
+	}
+	return value
 }
 
 func (m *Model) readyStatus() string {
