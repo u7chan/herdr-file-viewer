@@ -91,9 +91,12 @@ viewer reports a warning and falls back to the workspace or process cwd.
 The title occupies the first row and is centered within the pane. On a normal
 pane, a full-width `─` divider follows the title and another one separates the
 tree from the bottom-fixed Footer. The root HOME path is pinned immediately
-below the title divider; only its descendants scroll. The Footer contains
-`Ready`, loading, warning, copy, or error status. Very small panes omit
-dividers when there is no room for them.
+below the title divider; only its descendants scroll. The tree and Footer have
+a small left inset. The Footer contains
+`space copy    q quit` during normal operation, with the key labels emphasized
+and the action labels muted; loading, warning, or error status replaces those
+hints when relevant. Copy confirmation is provided by Herdr's toast. Very
+small panes omit dividers when there is no room for them.
 The divider and scrollbar use portable box-drawing/block glyphs rather than a
 Nerd Font-specific glyph; the file tree icons remain Nerd Font glyphs.
 
