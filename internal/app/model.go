@@ -807,13 +807,14 @@ func (m *Model) renderRowWidth(index int, row browser.VisibleRow, width int) str
 		status = m.tree.GitStatusForPath(row.Path)
 	}
 	var prefix string
-	var content string
+	var icon string
 	if isRoot {
-		rootPrefix := rootTreeIcon + " "
-		content = rootPrefix + truncateRootPath(name, width-lipgloss.Width(rootPrefix))
+		// The root row is the fixed current-path display: it cannot be collapsed
+		// through UI toggles, so a chevron would falsely imply expandability.
+		icon = rootTreeIcon
+		name = " " + truncateRootPath(name, max(0, width-lipgloss.Width(icon)-1))
 	} else {
-		icon := iconForNode(row.Node, icons)
-		iconAndName := icon + " " + name
+		icon = iconForNode(row.Node, icons)
 		if row.Node.IsDirectory() {
 			chevron := collapsedTreeIcon
 			if row.Node.Expanded() {
@@ -823,37 +824,43 @@ func (m *Model) renderRowWidth(index int, row browser.VisibleRow, width int) str
 		} else {
 			prefix = indent + "  "
 		}
-		content = iconAndName
+		name = " " + name
 	}
-	// The root row is the fixed current-path display: it cannot be collapsed
-	// through UI toggles, so a chevron would falsely imply expandability.
-
-	if status != browser.GitStatusNone {
-		return m.renderStatusRow(index, prefix, content, status, width)
-	}
-	name = prefix + content
-	style := lipgloss.NewStyle().Inline(true)
-	if index == m.selected {
-		style = selectedStyle.Inline(true)
-	}
-	return style.Width(width).Render(truncateToWidth(name, width))
+	return m.renderTreeRow(index, prefix, icon, name, status, width)
 }
 
-func (m *Model) renderStatusRow(index int, prefix, content string, status browser.GitStatus, width int) string {
-	prefix = truncateToWidth(prefix, width)
-	prefixWidth := lipgloss.Width(prefix)
-	content = truncateToWidth(content, width-prefixWidth)
-	contentWidth := lipgloss.Width(content)
-
+// renderTreeRow paints a tree line as separate spans so the icon keeps its
+// palette color while the name follows the Git status and selection styles.
+// Spans are styled individually because an inner reset inside a single styled
+// span would drop the surrounding colors for the rest of the line.
+func (m *Model) renderTreeRow(index int, prefix, icon, name string, status browser.GitStatus, width int) string {
 	rowStyle := lipgloss.NewStyle().Inline(true)
-	statusStyle := gitStatusStyle(status)
 	if index == m.selected {
 		rowStyle = selectedStyle.Inline(true)
-		statusStyle = statusStyle.Background(selectedRowBackground)
+	}
+	nameStyle := lipgloss.NewStyle().Inline(true)
+	if status != browser.GitStatusNone {
+		nameStyle = gitStatusStyle(status)
+	}
+	iconSpan := iconStyle(icon)
+	if index == m.selected {
+		iconSpan = iconSpan.Background(selectedRowBackground)
 	}
 
-	rendered := rowStyle.Render(prefix) + statusStyle.Render(content)
-	if padding := width - prefixWidth - contentWidth; padding > 0 {
+	prefix = truncateToWidth(prefix, width)
+	prefixWidth := lipgloss.Width(prefix)
+	budget := width - prefixWidth
+	if lipgloss.Width(icon) > budget {
+		// The prefix alone fills the row, so the icon and name cannot fit.
+		icon = ""
+		name = ""
+	}
+	iconWidth := lipgloss.Width(icon)
+	name = truncateToWidth(name, max(0, budget-iconWidth))
+	nameWidth := lipgloss.Width(name)
+
+	rendered := rowStyle.Render(prefix) + iconSpan.Render(icon) + nameStyle.Render(name)
+	if padding := width - prefixWidth - iconWidth - nameWidth; padding > 0 {
 		rendered += rowStyle.Render(strings.Repeat(" ", padding))
 	}
 	return rendered
