@@ -13,13 +13,14 @@ import (
 // Herdr environment variables the viewer consumes. The plugin pane process
 // receives these from Herdr at launch.
 const (
-	BinPathEnv       = "HERDR_BIN_PATH"
-	EntrypointIDEnv  = "HERDR_PLUGIN_ENTRYPOINT_ID"
-	PaneIDEnv        = "HERDR_PANE_ID"
-	WorkspaceIDEnv   = "HERDR_WORKSPACE_ID"
-	PreviewFileEnv   = "HERDR_PREVIEW_FILE"
-	previewEntryID   = "preview"
-	paneNotFoundCode = "pane_not_found"
+	BinPathEnv      = "HERDR_BIN_PATH"
+	EntrypointIDEnv = "HERDR_PLUGIN_ENTRYPOINT_ID"
+	PaneIDEnv       = "HERDR_PANE_ID"
+	WorkspaceIDEnv  = "HERDR_WORKSPACE_ID"
+	PreviewFileEnv  = "HERDR_PREVIEW_FILE"
+	// PreviewEntrypointID identifies the preview pane entrypoint.
+	PreviewEntrypointID = "preview"
+	paneNotFoundCode    = "pane_not_found"
 )
 
 // EntrypointID returns HERDR_PLUGIN_ENTRYPOINT_ID, the pane entrypoint that
@@ -30,7 +31,7 @@ func EntrypointID() string {
 
 // IsPreviewEntrypoint reports whether this process runs the preview pane.
 func IsPreviewEntrypoint() bool {
-	return EntrypointID() == previewEntryID
+	return EntrypointID() == PreviewEntrypointID
 }
 
 // PaneID returns HERDR_PANE_ID, the caller's own pane identity.

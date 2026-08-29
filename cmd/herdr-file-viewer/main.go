@@ -12,8 +12,7 @@ import (
 )
 
 const (
-	pluginID            = "u7chan.file-viewer"
-	previewEntrypointID = "preview"
+	pluginID = "u7chan.file-viewer"
 )
 
 func main() {
@@ -71,7 +70,7 @@ type paneClientAdapter struct {
 func (a paneClientAdapter) OpenPreview(file, targetPane string) (string, error) {
 	return a.client.OpenPane(herdr.OpenPaneRequest{
 		Plugin:     pluginID,
-		Entrypoint: previewEntrypointID,
+		Entrypoint: herdr.PreviewEntrypointID,
 		Placement:  "split",
 		TargetPane: targetPane,
 		Direction:  "right",
