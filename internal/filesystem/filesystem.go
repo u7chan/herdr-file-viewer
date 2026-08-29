@@ -3,6 +3,8 @@
 package filesystem
 
 import (
+	"errors"
+	"io"
 	"io/fs"
 	"os"
 )
@@ -32,6 +34,14 @@ type FileSystem interface {
 	ReadDir(path string) ([]Entry, error)
 }
 
+// FileReader reads the head of one file without loading the whole file. It
+// is the preview's bounded counterpart to FileSystem: the caller decides how
+// many bytes are interesting and learns whether the file continues beyond
+// that limit.
+type FileReader interface {
+	ReadFileHead(path string, limit int) (content []byte, truncated bool, err error)
+}
+
 // Local reads directories through the operating system filesystem.
 type Local struct{}
 
@@ -55,4 +65,32 @@ func (Local) ReadDir(path string) ([]Entry, error) {
 		})
 	}
 	return entries, nil
+}
+
+// ReadFileHead reads at most limit bytes from the head of the file and
+// reports whether the file continues beyond the limit. Symlinks are followed
+// like any other open. Directories fail with a read error.
+func (Local) ReadFileHead(path string, limit int) ([]byte, bool, error) {
+	if limit < 0 {
+		limit = 0
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	content := make([]byte, limit+1)
+	n, err := io.ReadFull(file, content)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return nil, false, err
+	}
+	content = content[:n]
+	truncated := n > limit
+	if truncated {
+		content = content[:limit]
+	}
+	return content, truncated, nil
 }

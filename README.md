@@ -13,9 +13,10 @@ asynchronously so navigation, scrolling, and resize remain responsive.
 This is the minimum, read-only viewer used inside a Herdr pane. It supports
 lazy directory expansion, cell-aware single-line rendering, recoverable
 directory errors, symlink-as-entry handling, keyboard and mouse scrolling,
-visible scrollbar dragging, left-click selection/toggle, and OSC 52 path
-copying. It does not provide preview, external actions, editing,
-install/distribution automation, or release tags.
+visible scrollbar dragging, left-click selection/toggle, OSC 52 path
+copying, and a text preview pane opened from the tree. It does not provide
+syntax highlighting, markdown rendering, in-app text selection, external
+actions, editing, install/distribution automation, or release tags.
 
 The supported validation target is Linux under WSL2 with Herdr 0.8.2 or newer.
 Native macOS and Windows validation is out of scope. Native Windows host
@@ -97,7 +98,14 @@ directory instead of the directory being browsed.
   selection stays on its path, falling back to the last visible row when the
   entry no longer exists. Completion is confirmed by a brief in-app toast in
   the footer, so the reload feedback does not depend on Herdr settings.
-- `Enter`: reserved for a future action and intentionally has no effect.
+- `Enter`: open a text preview of the selected file in a right split pane and
+  keep the keyboard focus in the tree. Directories and symlinks whose target
+  is a directory or missing are ignored. The preview pane is tracked by its
+  pane ID and re-discovered through its `preview=<path>` metadata token after
+  a tree restart; pressing `Enter` on the file already shown keeps the
+  existing pane, and pressing it on another file closes and reopens the pane.
+  Without a Herdr context (`HERDR_PANE_ID` missing) `Enter` stays a no-op;
+  CLI failures surface as a footer warning and the tree keeps working.
 - Right click and other unassigned input: no effect.
 - `q` / `Ctrl+C`: quit. Bubble Tea restores the alternate screen, mouse mode,
   cursor, and input state when the pane exits.
@@ -121,6 +129,49 @@ and 2 are handled without allowing a row, selection bar, or status line to
 exceed the pane width. Symlinks are displayed but never followed.
 Entries named `.git` are hidden at every tree depth; other dotfiles remain
 visible.
+
+### Preview pane
+
+`Enter` in the tree opens the `preview` entrypoint as a right split without
+stealing the keyboard focus. The preview reads the file path passed through
+`HERDR_PREVIEW_FILE` at startup, re-reads the file from disk (the tree cache
+is not used), and shows a snapshot of its head. The layout mirrors the tree:
+a centered title (absolute path, tail-truncated with `…`), dividers, a body
+with a line-number gutter, and the footer `w wrap    q close`.
+
+Previewability is classified before rendering: known image, video, audio, and
+binary extensions (`png`, `mp4`, `mp3`, `zip`, `exe`, `so`, `pdf`, ...) show
+an `Unsupported preview: <category>` label instead of content; unknown or
+extensionless files are sniffed for NUL bytes or invalid UTF-8 in their head
+and are treated as binary when either is found. Everything else renders as
+text: `svg`, `json`, markdown, and plain files all count. Text is displayed
+with right-aligned line numbers (the gutter width follows the largest line
+number, and wrapped continuation lines leave the gutter blank), tabs expand
+to four spaces, CRLF is normalized, and every line passes the same
+terminal-safe sanitization as the tree. Files larger than 2 MiB are cut at
+the head and end with a `… truncated (2 MiB limit)` marker. There is no
+syntax highlighting, no markdown rendering, and no in-app text selection.
+
+Scrolling in the preview:
+
+- `j` / `k`, `Up` / `Down`, `Ctrl+u` / `Ctrl+d`, `Ctrl+b` / `Ctrl+f`,
+  `PageUp` / `PageDown`, `Home` / `End`: vertical movement, identical to the
+  tree.
+- Mouse wheel over the body: scroll three rows per wheel event. The rightmost
+  body column is the vertical scrollbar with track click and thumb drag.
+- `w`: toggle hard wrap (default off). With wrap on, lines break at the pane
+  width, continuation rows keep a blank gutter, and the horizontal offset is
+  reset. With wrap off, lines scroll horizontally instead of truncating.
+- `Left` / `Right`: horizontal scrolling (only while wrap is off). A
+  horizontal scrollbar row appears above the footer with the same track
+  click and thumb drag behavior.
+- `q` / `Ctrl+C`: quit. The split pane disappears and focus returns to the
+  tree (Herdr standard behavior).
+
+A missing or unreadable `HERDR_PREVIEW_FILE` shows a footer warning and waits
+for `q`. The preview tags its own pane with a `preview=<path>` metadata token
+at startup so a restarted tree can re-discover the pane without opening a
+duplicate.
 
 To remove the local link after testing:
 

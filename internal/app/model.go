@@ -79,20 +79,31 @@ type Model struct {
 	toastSeq      int
 	reloadCount   int
 	reloadErrored bool
+
+	previewConfig PreviewConfig
+	previewPaneID string
+	previewSeq    int
 }
 
 // NewModel constructs the tree without reading the filesystem. A filesystem
 // argument is optional so the composition root can use the local filesystem
 // while tests can provide a deterministic implementation.
 func NewModel(root, warning string, fileSystems ...filesystem.FileSystem) *Model {
+	return NewModelWithPreview(root, warning, PreviewConfig{}, fileSystems...)
+}
+
+// NewModelWithPreview additionally wires the Enter-preview capability. The
+// zero PreviewConfig keeps Enter a no-op, matching the plain NewModel.
+func NewModelWithPreview(root, warning string, preview PreviewConfig, fileSystems ...filesystem.FileSystem) *Model {
 	fileSystem := filesystem.FileSystem(filesystem.NewLocal())
 	if len(fileSystems) > 0 && fileSystems[0] != nil {
 		fileSystem = fileSystems[0]
 	}
 
 	m := &Model{
-		warning: sanitizeDisplay(warning),
-		pending: make(map[string]struct{}),
+		warning:       sanitizeDisplay(warning),
+		pending:       make(map[string]struct{}),
+		previewConfig: preview,
 	}
 	m.status = m.readyStatus()
 
@@ -170,7 +181,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "left":
 			m.collapseOrMoveToParent()
 		case "enter":
-			// Enter intentionally has no action in this read-only tree.
+			return m, m.openPreviewOnEnter()
+		}
+	case previewResultMsg:
+		if msg.seq != m.previewSeq {
+			break
+		}
+		m.previewPaneID = msg.paneID
+		if msg.err != "" {
+			m.warning = addWarning(m.warning, "Preview: "+msg.err)
 		}
 	case tea.MouseClickMsg:
 		return m, m.handleMouseClick(msg)
@@ -913,7 +932,11 @@ func (m *Model) letterColumnReserved() bool {
 }
 
 func (m *Model) renderScrollbarCell(row int, metrics scrollbarMetrics) string {
-	if m.width <= 0 {
+	return renderScrollbarCellWidth(m.width, row, metrics)
+}
+
+func renderScrollbarCellWidth(width, row int, metrics scrollbarMetrics) string {
+	if width <= 0 {
 		return ""
 	}
 
@@ -974,10 +997,14 @@ func renderShortcut(key, label string) string {
 }
 
 func (m *Model) renderStyledLine(line string, style lipgloss.Style) string {
-	if m.width <= 0 {
+	return renderStyledLineAt(line, style, m.width)
+}
+
+func renderStyledLineAt(line string, style lipgloss.Style, width int) string {
+	if width <= 0 {
 		return ""
 	}
-	return style.Inline(true).Width(m.width).Render(truncateToWidth(line, m.width))
+	return style.Inline(true).Width(width).Render(truncateToWidth(line, width))
 }
 
 func truncateToWidth(value string, width int) string {

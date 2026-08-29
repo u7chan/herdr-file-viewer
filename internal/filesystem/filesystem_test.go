@@ -49,3 +49,74 @@ func TestLocalReadDirReturnsOperatingSystemError(t *testing.T) {
 		t.Fatal("ReadDir(missing) error = nil, want error")
 	}
 }
+
+func TestLocalReadFileHeadReturnsHeadAndTruncation(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "file.txt")
+	if err := os.WriteFile(path, []byte("0123456789"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	emptyPath := filepath.Join(directory, "empty.txt")
+	if err := os.WriteFile(emptyPath, nil, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	for _, test := range []struct {
+		name      string
+		path      string
+		limit     int
+		want      string
+		truncated bool
+	}{
+		{name: "short file returns everything", path: path, limit: 100, want: "0123456789"},
+		{name: "exact limit is not truncated", path: path, limit: 10, want: "0123456789"},
+		{name: "limit cuts the head", path: path, limit: 4, want: "0123", truncated: true},
+		{name: "zero limit of a non-empty file is truncated", path: path, limit: 0, want: "", truncated: true},
+		{name: "zero limit of an empty file is not truncated", path: emptyPath, limit: 0, want: ""},
+		{name: "negative limit behaves like zero", path: path, limit: -1, want: "", truncated: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			content, truncated, err := NewLocal().ReadFileHead(test.path, test.limit)
+			if err != nil {
+				t.Fatalf("ReadFileHead() error = %v", err)
+			}
+			if string(content) != test.want {
+				t.Fatalf("ReadFileHead() content = %q, want %q", content, test.want)
+			}
+			if truncated != test.truncated {
+				t.Fatalf("ReadFileHead() truncated = %v, want %v", truncated, test.truncated)
+			}
+		})
+	}
+}
+
+func TestLocalReadFileHeadFollowsSymlinksAndFailsOnMissingFile(t *testing.T) {
+	directory := t.TempDir()
+	target := filepath.Join(directory, "target.txt")
+	if err := os.WriteFile(target, []byte("linked"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	link := filepath.Join(directory, "link.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	content, truncated, err := NewLocal().ReadFileHead(link, 8)
+	if err != nil {
+		t.Fatalf("ReadFileHead(link) error = %v", err)
+	}
+	if string(content) != "linked" || truncated {
+		t.Fatalf("ReadFileHead(link) = %q, truncated %v; want linked content", content, truncated)
+	}
+
+	if _, _, err := NewLocal().ReadFileHead(filepath.Join(directory, "missing"), 8); err == nil {
+		t.Fatal("ReadFileHead(missing) error = nil, want error")
+	}
+}
+
+func TestLocalReadFileHeadFailsOnDirectory(t *testing.T) {
+	directory := t.TempDir()
+	if _, _, err := NewLocal().ReadFileHead(directory, 8); err == nil {
+		t.Fatal("ReadFileHead(directory) error = nil, want read error")
+	}
+}
