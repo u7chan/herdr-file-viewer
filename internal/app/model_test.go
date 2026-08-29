@@ -850,6 +850,7 @@ func TestReloadMixedFailureKeepsErrorAndSuppressesToast(t *testing.T) {
 	fake.set(directoryPath, []filesystem.Entry{{Name: "file", Mode: 0}})
 
 	for _, errorFirst := range []bool{false, true} {
+		delete(fake.errors, cleanAbsolute(directoryPath))
 		model := NewModel(root, "", fake)
 		completeInitialLoad(t, model)
 		model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
