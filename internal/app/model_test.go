@@ -1350,11 +1350,19 @@ func TestRenderTreeRowSelectedNameKeepsBackground(t *testing.T) {
 		{name: "git status file", status: browser.GitStatusModified},
 	}
 
+	// The row is a concatenation of separately styled spans, and lipgloss
+	// emits style codes even for empty spans, so assert that the background
+	// code sits directly before the name text. A bare "48;5;238" match could
+	// otherwise come from the prefix, icon, or trailing padding spans.
+	const name = "notes.md"
+	width := lipgloss.Width(name)
+	nameWithBackground := "48;5;238m" + name
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			selected := Model{selected: 2}
-			row := selected.renderTreeRow(2, "", "", "notes.md", test.status, 40)
-			if !strings.Contains(row, "48;5;238") {
+			row := selected.renderTreeRow(2, "", "", name, test.status, width)
+			if !strings.Contains(row, nameWithBackground) {
 				t.Fatalf("selected name span missing background: %q", row)
 			}
 			if test.status == browser.GitStatusModified && !strings.Contains(row, "38;5;220") {
@@ -1362,8 +1370,8 @@ func TestRenderTreeRowSelectedNameKeepsBackground(t *testing.T) {
 			}
 
 			unselected := Model{selected: 3}
-			row = unselected.renderTreeRow(2, "", "", "notes.md", test.status, 40)
-			if strings.Contains(row, "48;5;238") {
+			row = unselected.renderTreeRow(2, "", "", name, test.status, width)
+			if strings.Contains(row, nameWithBackground) {
 				t.Fatalf("unselected name span has background: %q", row)
 			}
 			if test.status == browser.GitStatusModified && !strings.Contains(row, "38;5;220") {
