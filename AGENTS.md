@@ -19,6 +19,13 @@ Before implementation, briefly clarify when necessary:
 
 Keep How in the design and code rather than this document.
 
+## Behavior / Spec Consultation Policy
+
+When consulted about behavior or specifications, do not implement immediately.
+If the observed result does not match the implementation, file an Issue or
+confirm the intended direction first. Never jump straight into
+implementation.
+
 ## Architecture Policy
 
 - `cmd/herdr-file-viewer` is the composition root.
