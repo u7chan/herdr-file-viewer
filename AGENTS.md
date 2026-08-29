@@ -19,6 +19,13 @@ Before implementation, briefly clarify when necessary:
 
 Keep How in the design and code rather than this document.
 
+## Behavior / Spec Consultation Policy
+
+When consulted about behavior or specifications, do not implement immediately.
+If the observed result does not match the implementation, file an Issue or
+confirm the intended direction first. Never jump straight into
+implementation.
+
 ## Architecture Policy
 
 - `cmd/herdr-file-viewer` is the composition root.
@@ -42,6 +49,10 @@ Keep How in the design and code rather than this document.
 - Avoid comments that merely restate the code.
 - Document only non-obvious intent, constraints, and safety assumptions.
 - Use `TODO:` or `TBD:` for explicitly deferred work.
+
+## Commit Messages
+
+- Commit messages are English-only with a conventional commit prefix (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, `ci:`).
 
 ## Review Policy
 

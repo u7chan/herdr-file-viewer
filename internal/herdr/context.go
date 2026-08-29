@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 const contextJSONEnv = "HERDR_PLUGIN_CONTEXT_JSON"
@@ -97,6 +99,18 @@ func ResolveRootAt(processCWD string, lookupEnv func(string) (string, bool)) (Ro
 	}, nil
 }
 
+// ChdirRoot moves the process into the resolved root so Herdr attributes the
+// viewed directory to this pane. Herdr launches plugin pane commands with the
+// plugin directory as their working directory, and pane splits inherit that
+// process cwd; without this chdir a split opened from the viewer pane would
+// start in the plugin directory instead of the directory being browsed.
+func ChdirRoot(path string) error {
+	if err := os.Chdir(path); err != nil {
+		return fmt.Errorf("enter root %q: %w", path, err)
+	}
+	return nil
+}
+
 func readSnapshot(lookupEnv func(string) (string, bool)) (ContextSnapshot, string) {
 	raw, ok := lookupEnv(contextJSONEnv)
 	if !ok || strings.TrimSpace(raw) == "" {
@@ -110,6 +124,10 @@ func readSnapshot(lookupEnv func(string) (string, bool)) (ContextSnapshot, strin
 	return snapshot, ""
 }
 
+// ensureDirectory requires a real directory the process can enter. Without
+// the search bit a candidate passes os.Stat but ChdirRoot would later fail
+// with EACCES; rejecting it here keeps the warning-and-fallback chain intact
+// instead of aborting startup.
 func ensureDirectory(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -117,6 +135,9 @@ func ensureDirectory(path string) error {
 	}
 	if !info.IsDir() {
 		return errors.New("not a directory")
+	}
+	if err := unix.Access(path, unix.X_OK); err != nil {
+		return fmt.Errorf("not enterable: %w", err)
 	}
 	return nil
 }

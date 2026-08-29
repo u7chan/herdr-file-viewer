@@ -124,6 +124,76 @@ func TestResolveRootFallsBackToProcessCWDWhenContextDirectoriesAreUnavailable(t 
 	}
 }
 
+// TestChdirRootMovesIntoTheRoot is intentionally sequential: ChdirRoot mutates
+// the process working directory, which is process-global state.
+func TestChdirRootMovesIntoTheRoot(t *testing.T) {
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(original); err != nil {
+			t.Errorf("restore cwd %q: %v", original, err)
+		}
+	})
+
+	dir := t.TempDir()
+	if err := ChdirRoot(dir); err != nil {
+		t.Fatalf("ChdirRoot(%q) error = %v", dir, err)
+	}
+	got, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	want, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", dir, err)
+	}
+	gotInfo, err := os.Stat(got)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", got, err)
+	}
+	if !os.SameFile(want, gotInfo) {
+		t.Fatalf("Getwd() = %q, want %q", got, dir)
+	}
+}
+
+func TestChdirRootReportsMissingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing")
+	if err := ChdirRoot(missing); err == nil {
+		t.Fatal("ChdirRoot() error = nil, want missing-directory error")
+	}
+}
+
+func TestResolveRootFallsBackFromUnenterableDirectoryToWorkspace(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks are bypassed for root")
+	}
+
+	dir := t.TempDir()
+	unenterable := filepath.Join(dir, "unenterable")
+	workspace := filepath.Join(dir, "workspace")
+	mustMkdir(t, unenterable)
+	mustMkdir(t, workspace)
+	if err := os.Chmod(unenterable, 0o644); err != nil {
+		t.Fatalf("Chmod(%q): %v", unenterable, err)
+	}
+
+	got, err := ResolveRootAt(dir, lookup(map[string]string{
+		contextJSONEnv: `{"focused_pane_cwd":"` + unenterable + `","workspace_cwd":"` + workspace + `"}`,
+	}))
+	if err != nil {
+		t.Fatalf("ResolveRootAt() error = %v", err)
+	}
+	if got.Path != workspace || got.Source != WorkspaceRoot {
+		t.Fatalf("ResolveRootAt() = %#v, want workspace root %q", got, workspace)
+	}
+	if !strings.Contains(got.Warning, "not enterable") {
+		t.Fatalf("ResolveRootAt() warning = %q, want enterability reason", got.Warning)
+	}
+}
+
 func lookup(values map[string]string) func(string) (string, bool) {
 	return func(key string) (string, bool) {
 		value, ok := values[key]
