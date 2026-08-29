@@ -16,10 +16,13 @@ const gitEntryName = ".git"
 
 // LoadRequest identifies one directory read. It is safe to execute the read
 // without mutating the Tree and to apply the result later in the owner of the
-// tree's update loop.
+// tree's update loop. IgnoreCandidates carries the root-relative paths for
+// one .gitignore check; it is collected on the owner goroutine so a read
+// command never walks the node graph.
 type LoadRequest struct {
-	Node *Node
-	Path string
+	Node             *Node
+	Path             string
+	IgnoreCandidates []string
 }
 
 // LoadResult is the data returned by a directory read. Err is retained on the
@@ -162,7 +165,13 @@ func (t *Tree) Reload() []LoadRequest {
 			node.loading = true
 			node.loaded = false
 			node.loadError = nil
-			requests = append(requests, LoadRequest{Node: node, Path: node.path})
+			request := LoadRequest{Node: node, Path: node.path}
+			if node == t.root {
+				// Collected here, on the owner goroutine, so the read
+				// command never walks the node graph (see LoadRequest).
+				request.IgnoreCandidates = t.collectNodePaths()
+			}
+			requests = append(requests, request)
 		}
 		for _, child := range node.children {
 			if child.IsDirectory() {
@@ -205,23 +214,25 @@ func (t *Tree) readDirectory(request LoadRequest) LoadResult {
 	if t != nil && request.Node == t.root {
 		result.GitStatus = t.ReadGitStatus()
 		result.HasGitStatus = true
+		// A failed snapshot proves there is no usable working tree, so the
+		// check-ignore subprocess would only fail again; skip it and let
+		// ApplyLoad clear the cache.
+		if result.GitStatus.Err != nil {
+			result.GitIgnore = GitIgnoreResult{}
+			result.HasGitIgnore = true
+			return result
+		}
 		// Fresh entries are candidates even though ApplyLoad has not placed
 		// them in the node graph yet; the first load must be able to test
-		// the root's children.
-		result.GitIgnore = t.ReadGitIgnore(entryPaths(request.Path, result.Entries))
+		// the root's children. Each entry name is one level below the root.
+		candidates := append([]string(nil), request.IgnoreCandidates...)
+		for _, entry := range result.Entries {
+			candidates = append(candidates, filepath.ToSlash(entry.Name))
+		}
+		result.GitIgnore = t.ReadGitIgnore(candidates)
 		result.HasGitIgnore = true
 	}
 	return result
-}
-
-// entryPaths converts freshly read directory entries into absolute paths for
-// one .gitignore candidate pass.
-func entryPaths(dir string, entries []filesystem.Entry) []string {
-	paths := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		paths = append(paths, filepath.Join(dir, entry.Name))
-	}
-	return paths
 }
 
 // ReadGitStatus reads the optional Git status capability without mutating
@@ -239,25 +250,15 @@ func (t *Tree) ReadGitStatus() GitStatusResult {
 	return GitStatusResult{Entries: entries, Err: err}
 }
 
-// ReadGitIgnore refreshes the .gitignore snapshot for every node currently
-// in the tree plus the fresh root entries in extra. Paths that are neither
-// in the tree nor in extra are not tested; newly expanded children inherit
-// the nearest tested ancestor until the next full refresh.
-func (t *Tree) ReadGitIgnore(extra []string) GitIgnoreResult {
-	if t == nil || t.fileSystem == nil || t.root == nil {
-		return GitIgnoreResult{}
+// ReadGitIgnore runs one batched .gitignore check for the given
+// root-relative candidate paths. Candidates are expected to come from the
+// owner goroutine (LoadRequest.IgnoreCandidates or fresh root entries).
+func (t *Tree) ReadGitIgnore(candidates []string) GitIgnoreResult {
+	if t == nil || len(candidates) == 0 || t.fileSystem == nil || t.root == nil {
+		return GitIgnoreResult{Candidates: candidates}
 	}
 	reader, ok := t.fileSystem.(filesystem.GitIgnoreReader)
 	if !ok {
-		return GitIgnoreResult{}
-	}
-	candidates := t.collectNodePaths()
-	for _, path := range extra {
-		if relative, ok := t.relativePath(path); ok && !slices.Contains(candidates, relative) {
-			candidates = append(candidates, relative)
-		}
-	}
-	if len(candidates) == 0 {
 		return GitIgnoreResult{Candidates: candidates}
 	}
 	ignored, err := reader.ReadGitIgnore(t.root.path, candidates)
@@ -279,8 +280,9 @@ func (t *Tree) relativePath(path string) (string, bool) {
 	return filepath.ToSlash(relative), true
 }
 
-// collectNodePaths returns every node path relative to the root, excluding
-// the root itself, for one batched .gitignore check.
+// collectNodePaths returns every node path relative to the root for one
+// batched .gitignore check. It must only be called from the tree owner's
+// goroutine (Reload) because it walks the node graph.
 func (t *Tree) collectNodePaths() []string {
 	var paths []string
 	var walk func(node *Node)
@@ -288,8 +290,8 @@ func (t *Tree) collectNodePaths() []string {
 		if node == nil {
 			return
 		}
-		if node != t.root {
-			paths = append(paths, mustRelativePath(t.root.path, node.path))
+		if relative, ok := t.relativePath(node.path); ok {
+			paths = append(paths, relative)
 		}
 		for _, child := range node.children {
 			walk(child)
@@ -297,17 +299,6 @@ func (t *Tree) collectNodePaths() []string {
 	}
 	walk(t.root)
 	return paths
-}
-
-// mustRelativePath returns the slash-separated path of child relative to
-// root. Both are cleaned absolute paths, so the relative path cannot escape
-// the root.
-func mustRelativePath(root, path string) string {
-	relative, err := filepath.Rel(root, path)
-	if err != nil {
-		return ""
-	}
-	return filepath.ToSlash(relative)
 }
 
 // ApplyLoad applies a result only to the node that is still waiting for that

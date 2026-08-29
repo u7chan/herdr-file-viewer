@@ -109,6 +109,57 @@ func TestReadGitIgnoreBatchesAllLoadedNodePaths(t *testing.T) {
 	}
 }
 
+func TestReloadCarriesIgnoreCandidatesOnlyOnTheRootRequest(t *testing.T) {
+	root := t.TempDir()
+	fake := &gitIgnoreFileSystem{fakeFileSystem: newFakeFileSystem()}
+	fake.set(root, []filesystem.Entry{
+		{Name: "dir", Mode: fs.ModeDir},
+		{Name: "top.txt", Mode: 0},
+	})
+	fake.set(filepath.Join(root, "dir"), []filesystem.Entry{{Name: "inner.go", Mode: 0}})
+
+	tree := mustGitStatusTree(t, root, fake)
+	request, ok := tree.Expand(tree.Root())
+	if !ok {
+		t.Fatal("Expand(root) started no load")
+	}
+	if !tree.ApplyLoad(tree.ReadInitial(request)) {
+		t.Fatal("ApplyLoad() rejected initial result")
+	}
+	dirRequest, ok := tree.Expand(tree.Root().Children()[0])
+	if !ok {
+		t.Fatal("Expand(dir) started no load")
+	}
+	if !tree.ApplyLoad(tree.Read(dirRequest)) {
+		t.Fatal("ApplyLoad() rejected directory read")
+	}
+
+	requests := tree.Reload()
+	var rootRequest, childRequest *LoadRequest
+	for index := range requests {
+		if requests[index].Node == tree.Root() {
+			rootRequest = &requests[index]
+		} else {
+			childRequest = &requests[index]
+		}
+	}
+	if rootRequest == nil || childRequest == nil {
+		t.Fatalf("Reload() requests = %d, want root and child", len(requests))
+	}
+	seen := make(map[string]bool, len(rootRequest.IgnoreCandidates))
+	for _, candidate := range rootRequest.IgnoreCandidates {
+		seen[candidate] = true
+	}
+	for _, want := range []string{"dir", "dir/inner.go", "top.txt"} {
+		if !seen[want] {
+			t.Fatalf("root IgnoreCandidates = %v, missing %q", rootRequest.IgnoreCandidates, want)
+		}
+	}
+	if len(childRequest.IgnoreCandidates) != 0 {
+		t.Fatalf("child reload request carries candidates: %v", childRequest.IgnoreCandidates)
+	}
+}
+
 func TestTreeGitIgnoreErrorDisablesIgnoreColoring(t *testing.T) {
 	root := t.TempDir()
 	fake := &gitIgnoreFileSystem{

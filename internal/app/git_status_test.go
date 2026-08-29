@@ -117,7 +117,9 @@ func TestGitStatusColorsRowsAndAggregatesDirectories(t *testing.T) {
 			t.Errorf("Git status color leaked into the %s icon: %q", test.name, view)
 		}
 	}
-	if strings.Contains(view, gitStatusStyle(browser.GitStatusModified).Render(" clean")) {
+	// The negative assertion includes the icon so a regression that paints
+	// icon+name with one status style is detected (issue #44 intake memo).
+	if strings.Contains(view, gitStatusStyle(browser.GitStatusModified).Render(iconForTestName("clean")+" clean")) {
 		t.Fatal("clean row unexpectedly uses a Git status style")
 	}
 
@@ -278,6 +280,20 @@ func TestRenderTreeRowGreysOutIgnoredRows(t *testing.T) {
 	row = m.renderTreeRow(2, "", "icon", "normal.go", browser.GitStatusNone, false, 20)
 	if strings.Contains(row, "38;5;245") {
 		t.Fatalf("clean row = %q, must not be grey", row)
+	}
+}
+
+func TestViewEnablesFocusReporting(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+	model := NewModel(root, "", fake)
+	if view := model.View(); !view.ReportFocus {
+		t.Fatal("View() must enable focus reporting so FocusMsg reaches Update")
+	}
+	var nilModel *Model
+	if view := nilModel.View(); !view.ReportFocus {
+		t.Fatal("nil View() must enable focus reporting too")
 	}
 }
 

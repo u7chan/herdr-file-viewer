@@ -203,6 +203,7 @@ func (m *Model) View() tea.View {
 		view := tea.NewView("")
 		view.AltScreen = true
 		view.MouseMode = tea.MouseModeCellMotion
+		view.ReportFocus = true
 		return view
 	}
 
@@ -229,6 +230,9 @@ func (m *Model) View() tea.View {
 	view := tea.NewView(strings.Join(lines, "\n"))
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
+	// Without focus reporting (DECSET 1004) the terminal never emits focus
+	// events, and the focus-return refresh in Update would be dead code.
+	view.ReportFocus = true
 	return view
 }
 
