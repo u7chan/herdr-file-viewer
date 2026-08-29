@@ -14,9 +14,11 @@ import (
 	"github.com/u7chan/herdr-file-viewer/internal/filesystem"
 )
 
+var selectedRowBackground = lipgloss.Color("238")
+
 var (
 	titleStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Align(lipgloss.Center)
-	selectedStyle       = lipgloss.NewStyle().Background(lipgloss.Color("238"))
+	selectedStyle       = lipgloss.NewStyle().Background(selectedRowBackground)
 	dividerStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	scrollbarTrackStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	scrollbarThumbStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("62"))
@@ -60,6 +62,8 @@ type Model struct {
 
 	draggingScrollbar   bool
 	dragScrollbarOffset int
+
+	gitStatusRequested bool
 }
 
 // NewModel constructs the tree without reading the filesystem. A filesystem
@@ -98,7 +102,14 @@ func (m *Model) Init() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	return m.startLoad(request)
+	m.pending[request.Path] = struct{}{}
+	m.loading = true
+	m.status = loadingStatus
+	if !m.gitStatusRequested && request.Node == m.tree.Root() {
+		m.gitStatusRequested = true
+		return loadInitialDirectory(m.tree, request)
+	}
+	return loadDirectory(m.tree, request)
 }
 
 // Update applies messages and is the only place where load results mutate the
@@ -389,6 +400,12 @@ func loadDirectory(tree *browser.Tree, request browser.LoadRequest) tea.Cmd {
 	}
 }
 
+func loadInitialDirectory(tree *browser.Tree, request browser.LoadRequest) tea.Cmd {
+	return func() tea.Msg {
+		return tree.ReadInitial(request)
+	}
+}
+
 func (m *Model) applyLoadResult(result browser.LoadResult) {
 	if m.tree == nil || !m.tree.ApplyLoad(result) {
 		return
@@ -660,36 +677,68 @@ func (m *Model) renderRowWidth(index int, row browser.VisibleRow, width int) str
 	}
 
 	icons := iconsFor(defaultTreeIconSet)
-	indent := strings.Repeat("  ", row.Depth)
+	indent := strings.Repeat("  ", max(0, row.Depth-1))
 	isRoot := row.Node.Parent() == nil
 	name := row.Node.Name()
 	if isRoot {
 		name = row.Node.Path()
 	}
 	name = sanitizeDisplay(name)
+	status := browser.GitStatusNone
+	if m.tree != nil {
+		status = m.tree.GitStatusForPath(row.Path)
+	}
+	var prefix string
+	var content string
 	if isRoot {
 		rootPrefix := rootTreeIcon + " "
-		name = rootPrefix + truncateRootPath(name, width-lipgloss.Width(rootPrefix))
+		content = rootPrefix + truncateRootPath(name, width-lipgloss.Width(rootPrefix))
 	} else {
 		icon := iconForNode(row.Node, icons)
+		iconAndName := icon + " " + name
 		if row.Node.IsDirectory() {
 			chevron := collapsedTreeIcon
 			if row.Node.Expanded() {
 				chevron = expandedTreeIcon
 			}
-			name = indent + chevron + " " + icon + " " + name
+			prefix = indent + chevron + " "
 		} else {
-			name = indent + "  " + icon + " " + name
+			prefix = indent + "  "
 		}
+		content = iconAndName
 	}
 	// The root row is the fixed current-path display: it cannot be collapsed
 	// through UI toggles, so a chevron would falsely imply expandability.
 
+	if status != browser.GitStatusNone {
+		return m.renderStatusRow(index, prefix, content, status, width)
+	}
+	name = prefix + content
 	style := lipgloss.NewStyle().Inline(true)
 	if index == m.selected {
 		style = selectedStyle.Inline(true)
 	}
 	return style.Width(width).Render(truncateToWidth(name, width))
+}
+
+func (m *Model) renderStatusRow(index int, prefix, content string, status browser.GitStatus, width int) string {
+	prefix = truncateToWidth(prefix, width)
+	prefixWidth := lipgloss.Width(prefix)
+	content = truncateToWidth(content, width-prefixWidth)
+	contentWidth := lipgloss.Width(content)
+
+	rowStyle := lipgloss.NewStyle().Inline(true)
+	statusStyle := gitStatusStyle(status)
+	if index == m.selected {
+		rowStyle = selectedStyle.Inline(true)
+		statusStyle = statusStyle.Background(selectedRowBackground)
+	}
+
+	rendered := rowStyle.Render(prefix) + statusStyle.Render(content)
+	if padding := width - prefixWidth - contentWidth; padding > 0 {
+		rendered += rowStyle.Render(strings.Repeat(" ", padding))
+	}
+	return rendered
 }
 
 func (m *Model) renderScrollbarCell(row int, metrics scrollbarMetrics) string {
