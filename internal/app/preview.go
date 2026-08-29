@@ -33,6 +33,7 @@ const (
 	previewHelpCloseKey         = "q"
 	previewHelpCloseLabel       = "close"
 	previewUnsupportedPrefix    = "Unsupported preview: "
+	previewGutterDividerGlyph   = "│"
 	previewHorizontalTrackGlyph = "─"
 	previewHorizontalThumbGlyph = "━"
 )
@@ -632,7 +633,11 @@ func (m *PreviewModel) renderBodyRow(row int, line previewLine, contentWidth int
 	if contentWidth <= 0 {
 		return leftPad + scrollbar
 	}
-	return leftPad + m.renderGutter(line) + " " + m.renderContent(line, contentWidth) + scrollbar
+	separator := " "
+	if m.lineCount > 0 {
+		separator = dividerStyle.Inline(true).Render(previewGutterDividerGlyph)
+	}
+	return leftPad + m.renderGutter(line) + separator + m.renderContent(line, contentWidth) + scrollbar
 }
 
 func (m *PreviewModel) renderGutter(line previewLine) string {

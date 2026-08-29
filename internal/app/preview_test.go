@@ -535,17 +535,59 @@ func TestPreviewRendersGutterNumbersAndBlankContinuations(t *testing.T) {
 
 	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
 	bodyStart := 1 + headerDividerHeight(model.height)
-	if !strings.HasPrefix(lines[bodyStart], " 1 one ") {
+	if !strings.HasPrefix(lines[bodyStart], " 1"+previewGutterDividerGlyph+"one") {
 		t.Fatalf("first body line = %q, want gutter 1", lines[bodyStart])
 	}
-	if !strings.HasPrefix(lines[bodyStart+1], " 2 alphabetabcd") {
+	if !strings.HasPrefix(lines[bodyStart+1], " 2"+previewGutterDividerGlyph+"alphabetabcd") {
 		t.Fatalf("wrapped head line = %q, want line number 2", lines[bodyStart+1])
 	}
-	if !strings.HasPrefix(lines[bodyStart+2], "   efghij") {
+	if !strings.HasPrefix(lines[bodyStart+2], "  "+previewGutterDividerGlyph+"efghij") {
 		t.Fatalf("continuation line = %q, want blank gutter", lines[bodyStart+2])
 	}
-	if !strings.HasPrefix(lines[bodyStart+3], " 3 xyz") {
+	if !strings.HasPrefix(lines[bodyStart+3], " 3"+previewGutterDividerGlyph+"xyz") {
 		t.Fatalf("last body line = %q, want gutter 3", lines[bodyStart+3])
+	}
+}
+
+func TestPreviewBodyOmitsDividerWithoutGutter(t *testing.T) {
+	tests := []struct {
+		name  string
+		model *PreviewModel
+	}{
+		{
+			name:  "loading",
+			model: NewPreviewModel("/abs/loading.txt", nil, ""),
+		},
+		{
+			name: "warning",
+			model: func() *PreviewModel {
+				reader := &fakePreviewReader{err: errors.New("boom")}
+				model := NewPreviewModel("/abs/missing.txt", nil, "", reader)
+				model.Update(model.Init()().(previewLoadMsg))
+				return model
+			}(),
+		},
+		{
+			name: "unsupported",
+			model: func() *PreviewModel {
+				reader := &fakePreviewReader{content: []byte("PK\x03\x04")}
+				model := NewPreviewModel("/abs/bundle.zip", nil, "", reader)
+				model.Update(model.Init()().(previewLoadMsg))
+				return model
+			}(),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			model := test.model
+			model.Update(tea.WindowSizeMsg{Width: 30, Height: 6})
+			lines := strings.Split(ansi.Strip(model.View().Content), "\n")
+			separatorIndex := model.contentLeftPadding() + model.gutterWidth()
+			bodyLine := []rune(lines[model.bodyStartY()])
+			if got := string(bodyLine[separatorIndex]); got == previewGutterDividerGlyph {
+				t.Fatalf("body line = %q, has divider without gutter", lines[model.bodyStartY()])
+			}
+		})
 	}
 }
 

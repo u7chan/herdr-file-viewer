@@ -137,7 +137,7 @@ stealing the keyboard focus. The preview reads the file path passed through
 `HERDR_PREVIEW_FILE` at startup, re-reads the file from disk (the tree cache
 is not used), and shows a snapshot of its head. The layout mirrors the tree:
 a centered title (absolute path, tail-truncated with `…`), dividers, a body
-with a line-number gutter, and the footer `w wrap    q close`.
+with a line-number gutter and a vertical divider, and the footer `w wrap    q close`.
 
 Previewability is classified before rendering: known image, video, audio, and
 binary extensions (`png`, `mp4`, `mp3`, `zip`, `exe`, `so`, `pdf`, ...) show
