@@ -50,6 +50,10 @@ implementation.
 - Document only non-obvious intent, constraints, and safety assumptions.
 - Use `TODO:` or `TBD:` for explicitly deferred work.
 
+## Commit Messages
+
+- Commit messages are English-only with a conventional commit prefix (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, `ci:`).
+
 ## Review Policy
 
 - Write review findings and review results in Japanese.
