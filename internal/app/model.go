@@ -75,9 +75,10 @@ type Model struct {
 	gitStatusRequested bool
 	restorePath        string
 
-	toast       string
-	toastSeq    int
-	reloadCount int
+	toast         string
+	toastSeq      int
+	reloadCount   int
+	reloadErrored bool
 }
 
 // NewModel constructs the tree without reading the filesystem. A filesystem
@@ -432,6 +433,7 @@ func (m *Model) reloadTree() tea.Cmd {
 		m.restorePath = node.Path()
 	}
 	m.reloadCount = len(requests)
+	m.reloadErrored = false
 	commands := make([]tea.Cmd, 0, len(requests))
 	for _, request := range requests {
 		m.pending[request.Path] = struct{}{}
@@ -469,10 +471,11 @@ func (m *Model) applyLoadResult(result browser.LoadResult) tea.Cmd {
 	m.loading = len(m.pending) > 0
 	if applied {
 		if result.Err != nil {
+			m.reloadErrored = true
 			m.status = "Error: " + sanitizeDisplay(fmt.Sprintf("%s: %v", result.Path, result.Err))
 		} else if m.loading {
 			m.status = loadingStatus
-		} else {
+		} else if !m.reloadErrored {
 			m.status = m.readyStatus()
 		}
 		m.refreshVisibleRows()
@@ -482,14 +485,16 @@ func (m *Model) applyLoadResult(result browser.LoadResult) tea.Cmd {
 	}
 
 	m.restoreSelectionAfterReload()
-	return m.reloadToastCommand(result.Err)
+	succeeded := !m.reloadErrored
+	m.reloadErrored = false
+	return m.reloadToastCommand(succeeded)
 }
 
-// reloadToastCommand shows the footer toast once a reload finished
-// successfully. Errors are left to the footer status line, where they stay
-// visible; a toast would only flash them away.
-func (m *Model) reloadToastCommand(reloadErr error) tea.Cmd {
-	if m.reloadCount == 0 || reloadErr != nil {
+// reloadToastCommand shows the footer toast only when every directory of the
+// reload batch succeeded. Errors are left to the footer status line, where
+// they stay visible; a toast would only flash them away.
+func (m *Model) reloadToastCommand(succeeded bool) tea.Cmd {
+	if m.reloadCount == 0 || !succeeded {
 		m.reloadCount = 0
 		return nil
 	}
@@ -516,8 +521,7 @@ func (m *Model) showToast(text string) tea.Cmd {
 
 // restoreSelectionAfterReload re-anchors the selection once a reload has
 // finished. The pre-reload path is restored when it still exists; otherwise
-// the selection settles on the last visible row, the position of the removed
-// entry's former neighborhood.
+// the selection settles on the last visible row.
 func (m *Model) restoreSelectionAfterReload() {
 	if m.restorePath == "" {
 		return

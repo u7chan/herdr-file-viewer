@@ -445,6 +445,67 @@ func TestReloadReReadsLoadedDirectoriesPreservingExpansion(t *testing.T) {
 	}
 }
 
+func TestReloadKeepsCachedRowsVisibleAfterStructureChanges(t *testing.T) {
+	rootPath := filepath.Join("workspace", "root")
+	alphaPath := filepath.Join(rootPath, "alpha")
+	fake := newFakeFileSystem()
+	fake.set(rootPath, []filesystem.Entry{
+		{Name: "alpha", Mode: fs.ModeDir},
+		{Name: "beta", Mode: fs.ModeDir},
+	})
+	fake.set(alphaPath, []filesystem.Entry{{Name: "file", Mode: 0}})
+	tree := mustTree(t, rootPath, fake)
+
+	rootRequest, ok := tree.Expand(tree.Root())
+	if !ok {
+		t.Fatal("Expand(root) started no load")
+	}
+	if !tree.ApplyLoad(tree.Read(rootRequest)) {
+		t.Fatal("ApplyLoad(root) rejected result")
+	}
+	alpha := tree.Root().Children()[0]
+	alphaRequest, ok := tree.Expand(alpha)
+	if !ok {
+		t.Fatal("Expand(alpha) started no load")
+	}
+	if !tree.ApplyLoad(tree.Read(alphaRequest)) {
+		t.Fatal("ApplyLoad(alpha) rejected result")
+	}
+	if rows := tree.VisibleRows(); len(rows) != 4 {
+		t.Fatalf("visible rows = %d, want root, alpha, file, beta", len(rows))
+	}
+
+	requests := tree.Reload()
+	if len(requests) != 2 {
+		t.Fatalf("Reload() requests = %d, want 2", len(requests))
+	}
+
+	// Structural changes while the reload is in flight must not collapse the
+	// cached subtree display to the root row.
+	if !tree.Collapse(alpha) {
+		t.Fatal("Collapse(alpha) during reload failed")
+	}
+	if rows := tree.VisibleRows(); len(rows) != 3 {
+		t.Fatalf("rows after collapse during reload = %d, want root, alpha, beta", len(rows))
+	}
+	tree.Expand(alpha)
+	if rows := tree.VisibleRows(); len(rows) != 4 {
+		t.Fatalf("rows after re-expand during reload = %d, want cached 4", len(rows))
+	}
+
+	for _, request := range requests {
+		if !tree.ApplyLoad(tree.Read(request)) {
+			t.Fatalf("ApplyLoad(%q) rejected reload result", request.Path)
+		}
+	}
+	if rows := tree.VisibleRows(); len(rows) != 4 {
+		t.Fatalf("rows after reload = %d, want 4", len(rows))
+	}
+	if !alpha.Expanded() {
+		t.Fatal("alpha expansion state was lost across reload")
+	}
+}
+
 func TestReloadSkipsInFlightReadsAndRetriesFailedDirectories(t *testing.T) {
 	rootPath := filepath.Join("workspace", "root")
 	childPath := filepath.Join(rootPath, "child")

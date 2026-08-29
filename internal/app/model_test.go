@@ -842,6 +842,66 @@ func TestReloadDoesNotToastOnError(t *testing.T) {
 	}
 }
 
+func TestReloadMixedFailureKeepsErrorAndSuppressesToast(t *testing.T) {
+	root := t.TempDir()
+	directoryPath := filepath.Join(root, "directory")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "directory", Mode: fs.ModeDir}})
+	fake.set(directoryPath, []filesystem.Entry{{Name: "file", Mode: 0}})
+
+	for _, errorFirst := range []bool{false, true} {
+		model := NewModel(root, "", fake)
+		completeInitialLoad(t, model)
+		model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+		if cmd := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd == nil {
+			t.Fatal("expand returned nil command")
+		} else {
+			model.Update(cmd().(browser.LoadResult))
+		}
+
+		fake.setError(directoryPath, errors.New("read failed"))
+		cmd := model.UpdateKey(tea.KeyPressMsg{Code: 'r'})
+		if cmd == nil {
+			t.Fatal("reload returned nil command")
+		}
+		batch := cmd().(tea.BatchMsg)
+		if len(batch) != 2 {
+			t.Fatalf("reload batch = %d commands, want 2", len(batch))
+		}
+		results := make([]browser.LoadResult, 0, len(batch))
+		for _, reloadCmd := range batch {
+			results = append(results, reloadCmd().(browser.LoadResult))
+		}
+
+		var toastCmd tea.Cmd
+		if errorFirst {
+			for index := len(results) - 1; index >= 0; index-- {
+				_, returned := model.Update(results[index])
+				if returned != nil {
+					toastCmd = returned
+				}
+			}
+		} else {
+			for _, result := range results {
+				_, returned := model.Update(result)
+				if returned != nil {
+					toastCmd = returned
+				}
+			}
+		}
+
+		if toastCmd != nil {
+			t.Fatalf("mixed-failure reload (errorFirst=%v) returned command %v, want nil", errorFirst, toastCmd)
+		}
+		if model.toast != "" {
+			t.Fatalf("toast = %q after mixed failure, want none", model.toast)
+		}
+		if !strings.Contains(model.status, "Error:") {
+			t.Fatalf("status = %q after mixed failure, want Error retained", model.status)
+		}
+	}
+}
+
 func TestReloadToastRendersInFooter(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeFileSystem()
