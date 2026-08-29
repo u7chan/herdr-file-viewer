@@ -530,21 +530,21 @@ func TestPreviewRendersGutterNumbersAndBlankContinuations(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("one\nalphabetabcdefghij\nxyz")}
 	model := NewPreviewModel("/abs/multi.txt", nil, "", reader)
 	model.Update(tea.WindowSizeMsg{Width: 16, Height: 8})
-	model.Update(model.Init()().(previewLoadMsg)) // "alphabetabcdefghij" wraps at the 11-cell content width
+	model.Update(model.Init()().(previewLoadMsg)) // "alphabetabcdefghij" wraps at the 10-cell content width
 	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 'w', Text: "w"})
 
 	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
 	bodyStart := 1 + headerDividerHeight(model.height)
-	if !strings.HasPrefix(lines[bodyStart], " 1"+previewGutterDividerGlyph+" one") {
+	if !strings.HasPrefix(lines[bodyStart], "  1"+previewGutterDividerGlyph+" one") {
 		t.Fatalf("first body line = %q, want gutter 1", lines[bodyStart])
 	}
-	if !strings.HasPrefix(lines[bodyStart+1], " 2"+previewGutterDividerGlyph+" alphabetabc") {
+	if !strings.HasPrefix(lines[bodyStart+1], "  2"+previewGutterDividerGlyph+" alphabetab") {
 		t.Fatalf("wrapped head line = %q, want line number 2", lines[bodyStart+1])
 	}
-	if !strings.HasPrefix(lines[bodyStart+2], "  "+previewGutterDividerGlyph+" defghij") {
+	if !strings.HasPrefix(lines[bodyStart+2], "   "+previewGutterDividerGlyph+" cdefghij") {
 		t.Fatalf("continuation line = %q, want blank gutter", lines[bodyStart+2])
 	}
-	if !strings.HasPrefix(lines[bodyStart+3], " 3"+previewGutterDividerGlyph+" xyz") {
+	if !strings.HasPrefix(lines[bodyStart+3], "  3"+previewGutterDividerGlyph+" xyz") {
 		t.Fatalf("last body line = %q, want gutter 3", lines[bodyStart+3])
 	}
 }
@@ -594,7 +594,7 @@ func TestPreviewBodyOmitsDividerWithoutGutter(t *testing.T) {
 func TestPreviewRendersTitleFooterAndTruncatedMarker(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("short"), truncated: true}
 	model := NewPreviewModel("/abs/very-long-directory-name/file.txt", nil, "", reader)
-	model.Update(tea.WindowSizeMsg{Width: 30, Height: 6})
+	model.Update(tea.WindowSizeMsg{Width: 32, Height: 6})
 	model.Update(model.Init()().(previewLoadMsg))
 
 	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
@@ -794,9 +794,11 @@ func TestPreviewGutterWidthFollowsLineCountDigits(t *testing.T) {
 		lines int
 		width int
 	}{
-		{lines: 0, width: 1},
-		{lines: 9, width: 1},
+		{lines: 0, width: 2},
+		{lines: 9, width: 2},
 		{lines: 10, width: 2},
+		{lines: 99, width: 2},
+		{lines: 100, width: 3},
 		{lines: 123, width: 3},
 	} {
 		model := PreviewModel{lineCount: test.lines}
