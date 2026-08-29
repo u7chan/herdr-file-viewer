@@ -33,6 +33,7 @@ const (
 	previewHelpCloseKey         = "q"
 	previewHelpCloseLabel       = "close"
 	previewUnsupportedPrefix    = "Unsupported preview: "
+	previewGutterDividerGlyph   = "│"
 	previewHorizontalTrackGlyph = "─"
 	previewHorizontalThumbGlyph = "━"
 )
@@ -632,7 +633,11 @@ func (m *PreviewModel) renderBodyRow(row int, line previewLine, contentWidth int
 	if contentWidth <= 0 {
 		return leftPad + scrollbar
 	}
-	return leftPad + m.renderGutter(line) + " " + m.renderContent(line, contentWidth) + scrollbar
+	separator := " "
+	if m.lineCount > 0 {
+		separator = dividerStyle.Inline(true).Render(previewGutterDividerGlyph) + " "
+	}
+	return leftPad + m.renderGutter(line) + separator + m.renderContent(line, contentWidth) + scrollbar
 }
 
 func (m *PreviewModel) renderGutter(line previewLine) string {
@@ -701,7 +706,7 @@ func (m *PreviewModel) contentLeftPadding() int {
 // contentWidth is the width available for line content after the left
 // padding, the gutter, its separator, and the vertical scrollbar column.
 func (m *PreviewModel) contentWidth() int {
-	return max(0, m.width-m.contentLeftPadding()-m.gutterWidth()-1-1)
+	return max(0, m.width-m.contentLeftPadding()-m.gutterWidth()-2-1)
 }
 
 // gutterWidth is the maximum line-number width, always at least one cell for
