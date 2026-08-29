@@ -53,6 +53,7 @@ implementation.
 ## Commit Messages
 
 - Commit messages are English-only with a conventional commit prefix (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, `ci:`).
+- PR titles must be written in English.
 
 ## Review Policy
 
