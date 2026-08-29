@@ -63,7 +63,7 @@ func TestPreviewClientAdapterOpenPreviewFixesPluginIdentityAndEnv(t *testing.T) 
 	}
 	want := herdr.OpenPaneRequest{
 		Plugin:     pluginID,
-		Entrypoint: previewEntrypointID,
+		Entrypoint: herdr.PreviewEntrypointID,
 		Placement:  "split",
 		TargetPane: "wY:p3K",
 		Direction:  "right",
