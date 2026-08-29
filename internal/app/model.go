@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -16,9 +17,14 @@ import (
 
 var selectedRowBackground = lipgloss.Color("238")
 
+// toastDisplayDuration is a variable so tests can shorten the display time
+// without waiting for the real timer.
+var toastDisplayDuration = 3 * time.Second
+
 var (
 	titleStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Align(lipgloss.Center)
 	selectedStyle       = lipgloss.NewStyle().Background(selectedRowBackground)
+	toastStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
 	dividerStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	scrollbarTrackStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	scrollbarThumbStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("62"))
@@ -31,6 +37,8 @@ const (
 	readyStatus           = "Ready"
 	helpCopyKey           = "space"
 	helpCopyLabel         = "copy"
+	helpReloadKey         = "r"
+	helpReloadLabel       = "reload"
 	helpQuitKey           = "q"
 	helpQuitLabel         = "quit"
 	helpGroupSeparator    = "    "
@@ -41,6 +49,7 @@ const (
 	scrollbarThumbGlyph   = "┃"
 	mouseWheelScrollLines = 3
 	stickyRootHeight      = 1
+	reloadToastText       = "Reloaded"
 )
 
 // Model owns UI state and delegates all filesystem work to commands that read
@@ -64,6 +73,12 @@ type Model struct {
 	dragScrollbarOffset int
 
 	gitStatusRequested bool
+	restorePath        string
+
+	toast         string
+	toastSeq      int
+	reloadCount   int
+	reloadErrored bool
 }
 
 // NewModel constructs the tree without reading the filesystem. A filesystem
@@ -121,13 +136,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case browser.LoadResult:
-		m.applyLoadResult(msg)
+		return m, m.applyLoadResult(msg)
+	case toastTimeoutMsg:
+		if msg.seq == m.toastSeq {
+			m.toast = ""
+		}
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "space", "\u3000":
 			return m, m.copySelection()
+		case "r":
+			return m, m.reloadTree()
 		case "up", "k":
 			m.moveSelection(-1)
 		case "down", "j":
@@ -394,9 +415,44 @@ func (m *Model) startLoad(request browser.LoadRequest) tea.Cmd {
 	return loadDirectory(m.tree, request)
 }
 
+// reloadTree re-scans every loaded directory and refreshes the Git snapshot.
+// Cached rows stay visible until the results land, then the selection is
+// re-anchored to its pre-reload path, falling back to the last visible row
+// when that path no longer exists.
+func (m *Model) reloadTree() tea.Cmd {
+	if m == nil || m.tree == nil {
+		return nil
+	}
+
+	requests := m.tree.Reload()
+	if len(requests) == 0 {
+		return nil
+	}
+
+	if node := m.selectedNode(); node != nil {
+		m.restorePath = node.Path()
+	}
+	m.reloadCount = len(requests)
+	m.reloadErrored = false
+	commands := make([]tea.Cmd, 0, len(requests))
+	for _, request := range requests {
+		m.pending[request.Path] = struct{}{}
+		commands = append(commands, loadReloadDirectory(m.tree, request))
+	}
+	m.loading = true
+	m.status = loadingStatus
+	return tea.Batch(commands...)
+}
+
 func loadDirectory(tree *browser.Tree, request browser.LoadRequest) tea.Cmd {
 	return func() tea.Msg {
 		return tree.Read(request)
+	}
+}
+
+func loadReloadDirectory(tree *browser.Tree, request browser.LoadRequest) tea.Cmd {
+	return func() tea.Msg {
+		return tree.ReadReload(request)
 	}
 }
 
@@ -406,21 +462,83 @@ func loadInitialDirectory(tree *browser.Tree, request browser.LoadRequest) tea.C
 	}
 }
 
-func (m *Model) applyLoadResult(result browser.LoadResult) {
-	if m.tree == nil || !m.tree.ApplyLoad(result) {
-		return
+func (m *Model) applyLoadResult(result browser.LoadResult) tea.Cmd {
+	applied := false
+	if m.tree != nil {
+		applied = m.tree.ApplyLoad(result)
 	}
-
 	delete(m.pending, result.Path)
 	m.loading = len(m.pending) > 0
-	if result.Err != nil {
-		m.status = "Error: " + sanitizeDisplay(fmt.Sprintf("%s: %v", result.Path, result.Err))
-	} else if m.loading {
-		m.status = loadingStatus
-	} else {
-		m.status = m.readyStatus()
+	if applied {
+		if result.Err != nil {
+			m.reloadErrored = true
+			m.status = "Error: " + sanitizeDisplay(fmt.Sprintf("%s: %v", result.Path, result.Err))
+		} else if m.loading {
+			m.status = loadingStatus
+		} else if !m.reloadErrored {
+			m.status = m.readyStatus()
+		}
+		m.refreshVisibleRows()
 	}
-	m.refreshVisibleRows()
+	if m.loading {
+		return nil
+	}
+
+	m.restoreSelectionAfterReload()
+	succeeded := !m.reloadErrored
+	m.reloadErrored = false
+	return m.reloadToastCommand(succeeded)
+}
+
+// reloadToastCommand shows the footer toast only when every directory of the
+// reload batch succeeded. Errors are left to the footer status line, where
+// they stay visible; a toast would only flash them away.
+func (m *Model) reloadToastCommand(succeeded bool) tea.Cmd {
+	if m.reloadCount == 0 || !succeeded {
+		m.reloadCount = 0
+		return nil
+	}
+	m.reloadCount = 0
+	return m.showToast(reloadToastText)
+}
+
+// toastTimeoutMsg hides the footer toast after its display time.
+type toastTimeoutMsg struct {
+	seq int
+}
+
+// showToast shows text in the footer for a fixed display time. Each show
+// invalidates the previous timer, so rapid reloads keep the toast visible
+// for their own full duration.
+func (m *Model) showToast(text string) tea.Cmd {
+	m.toast = text
+	m.toastSeq++
+	seq := m.toastSeq
+	return tea.Tick(toastDisplayDuration, func(time.Time) tea.Msg {
+		return toastTimeoutMsg{seq: seq}
+	})
+}
+
+// restoreSelectionAfterReload re-anchors the selection once a reload has
+// finished. The pre-reload path is restored when it still exists; otherwise
+// the selection settles on the last visible row.
+func (m *Model) restoreSelectionAfterReload() {
+	if m.restorePath == "" {
+		return
+	}
+	path := m.restorePath
+	m.restorePath = ""
+	for index, row := range m.visibleRows {
+		if row.Node != nil && row.Node.Path() == path {
+			m.selected = index
+			m.keepSelectionVisible()
+			return
+		}
+	}
+	if len(m.visibleRows) > 0 {
+		m.selected = len(m.visibleRows) - 1
+		m.keepSelectionVisible()
+	}
 }
 
 func (m *Model) expandSelection() tea.Cmd {
@@ -780,11 +898,16 @@ func (m *Model) contentLeftPadding() int {
 }
 
 func (m *Model) renderFooter() string {
+	if m.toast != "" {
+		return m.renderStyledLine(strings.Repeat(" ", m.contentLeftPadding())+m.toast, toastStyle)
+	}
 	if m.status != readyStatus {
 		return m.renderLine(m.status)
 	}
 
-	help := renderShortcut(helpCopyKey, helpCopyLabel) + helpGroupSeparator + renderShortcut(helpQuitKey, helpQuitLabel)
+	help := renderShortcut(helpCopyKey, helpCopyLabel) + helpGroupSeparator +
+		renderShortcut(helpReloadKey, helpReloadLabel) + helpGroupSeparator +
+		renderShortcut(helpQuitKey, helpQuitLabel)
 	help = strings.Repeat(" ", m.contentLeftPadding()) + help
 	return m.renderStyledLine(help, lipgloss.NewStyle())
 }

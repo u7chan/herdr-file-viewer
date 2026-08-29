@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -517,7 +518,7 @@ func TestFooterAndDividerReserveTheBottomOfTheViewport(t *testing.T) {
 	if !strings.Contains(lines[4], dividerGlyph) || lipgloss.Width(lines[4]) != 80 {
 		t.Fatalf("footer divider = %q, want a full-width divider", lines[4])
 	}
-	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " space copy    q quit" {
+	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " space copy    r reload    q quit" {
 		t.Fatalf("footer = %q, want shortcut hints at the bottom", lines[len(lines)-1])
 	}
 	if !strings.HasPrefix(lines[2], " "+rootTreeIcon+" ") {
@@ -567,7 +568,7 @@ func TestFooterShowsOperationalStatusUntilReadyAndShortcutsWhenIdle(t *testing.T
 	model := NewModel(root, "", fake)
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
 
-	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    q quit" {
+	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    r reload    q quit" {
 		t.Fatalf("initial footer = %q, want shortcut hints", got)
 	}
 
@@ -577,8 +578,351 @@ func TestFooterShowsOperationalStatusUntilReadyAndShortcutsWhenIdle(t *testing.T
 	}
 
 	model.Update(load().(browser.LoadResult))
-	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    q quit" {
+	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    r reload    q quit" {
 		t.Fatalf("ready footer = %q, want shortcut hints", got)
+	}
+}
+
+func TestReloadKeyReScansLoadedDirectoriesAndRestoresSelection(t *testing.T) {
+	root := t.TempDir()
+	directoryPath := filepath.Join(root, "directory")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "directory", Mode: fs.ModeDir}})
+	fake.set(directoryPath, []filesystem.Entry{
+		{Name: "one", Mode: 0},
+		{Name: "two", Mode: 0},
+	})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if cmd := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd == nil {
+		t.Fatal("expand returned nil command")
+	} else {
+		model.Update(cmd().(browser.LoadResult))
+	}
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if node := model.selectedNode(); node == nil || node.Name() != "two" {
+		t.Fatalf("selection = %v, want two", model.selectedNode())
+	}
+	calls := len(fake.calls())
+
+	fake.set(directoryPath, []filesystem.Entry{
+		{Name: "one", Mode: 0},
+		{Name: "two", Mode: 0},
+		{Name: "three", Mode: 0},
+	})
+	cmd := model.UpdateKey(tea.KeyPressMsg{Code: 'r'})
+	if cmd == nil {
+		t.Fatal("reload returned nil command")
+	}
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("reload command message = %T, want tea.BatchMsg", cmd())
+	}
+	if len(batch) != 2 {
+		t.Fatalf("reload batch = %d commands, want 2", len(batch))
+	}
+	for _, reloadCmd := range batch {
+		result, ok := reloadCmd().(browser.LoadResult)
+		if !ok {
+			t.Fatalf("reload command message = %T, want browser.LoadResult", reloadCmd())
+		}
+		model.Update(result)
+	}
+
+	if got := len(fake.calls()); got != calls+2 {
+		t.Fatalf("filesystem calls = %d, want %d (root and directory re-read)", got, calls+2)
+	}
+	if node := model.selectedNode(); node == nil || node.Name() != "two" {
+		t.Fatalf("selection after reload = %v, want two", model.selectedNode())
+	}
+	found := false
+	for _, row := range model.visibleRows {
+		if row.Node != nil && row.Node.Name() == "three" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("newly added file is not visible after reload")
+	}
+	if !model.tree.Root().Expanded() {
+		t.Fatal("reload collapsed the root")
+	}
+}
+
+func TestReloadDropsSelectionAnchorWhenPathDisappears(t *testing.T) {
+	root := t.TempDir()
+	directoryPath := filepath.Join(root, "directory")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "directory", Mode: fs.ModeDir}})
+	fake.set(directoryPath, []filesystem.Entry{{Name: "two", Mode: 0}})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if cmd := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd == nil {
+		t.Fatal("expand returned nil command")
+	} else {
+		model.Update(cmd().(browser.LoadResult))
+	}
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if node := model.selectedNode(); node == nil || node.Name() != "two" {
+		t.Fatalf("selection = %v, want two", model.selectedNode())
+	}
+
+	fake.set(directoryPath, nil)
+	cmd := model.UpdateKey(tea.KeyPressMsg{Code: 'r'})
+	if cmd == nil {
+		t.Fatal("reload returned nil command")
+	}
+	batch := cmd().(tea.BatchMsg)
+	for index := len(batch) - 1; index >= 0; index-- {
+		model.Update(batch[index]().(browser.LoadResult))
+	}
+
+	if model.restorePath != "" {
+		t.Fatalf("restorePath = %q, want anchor dropped", model.restorePath)
+	}
+	selected := model.selectedNode()
+	if selected == nil || selected.Name() != "directory" {
+		t.Fatalf("selection after vanished reload = %v, want directory", selected)
+	}
+	if model.loading {
+		t.Fatal("reload left the model loading")
+	}
+}
+
+func TestReloadCompletesWhenSelectedDirectoryDisappears(t *testing.T) {
+	root := t.TempDir()
+	directoryPath := filepath.Join(root, "directory")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "directory", Mode: fs.ModeDir}})
+	fake.set(directoryPath, []filesystem.Entry{{Name: "file", Mode: 0}})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if cmd := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd == nil {
+		t.Fatal("expand returned nil command")
+	} else {
+		model.Update(cmd().(browser.LoadResult))
+	}
+
+	fake.set(root, nil)
+	cmd := model.UpdateKey(tea.KeyPressMsg{Code: 'r'})
+	if cmd == nil {
+		t.Fatal("reload returned nil command")
+	}
+	for _, reloadCmd := range cmd().(tea.BatchMsg) {
+		model.Update(reloadCmd().(browser.LoadResult))
+	}
+
+	if model.loading {
+		t.Fatal("reload with a removed directory left the model loading")
+	}
+	if got := model.status; got != model.readyStatus() {
+		t.Fatalf("status after reload = %q, want %q", got, model.readyStatus())
+	}
+	if rows := model.visibleRows; len(rows) != 1 || rows[0].Node != model.tree.Root() {
+		t.Fatalf("visible rows after reload = %v, want root only", rows)
+	}
+	if model.selected != 0 {
+		t.Fatalf("selection after reload = %d, want root fallback", model.selected)
+	}
+}
+
+func TestReloadShowsFooterToastOnceAndTimesOut(t *testing.T) {
+	previousDuration := toastDisplayDuration
+	toastDisplayDuration = time.Millisecond
+	defer func() { toastDisplayDuration = previousDuration }()
+
+	root := t.TempDir()
+	directoryPath := filepath.Join(root, "directory")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "directory", Mode: fs.ModeDir}})
+	fake.set(directoryPath, []filesystem.Entry{{Name: "file", Mode: 0}})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if cmd := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd == nil {
+		t.Fatal("expand returned nil command")
+	} else {
+		model.Update(cmd().(browser.LoadResult))
+	}
+
+	fake.set(directoryPath, []filesystem.Entry{
+		{Name: "file", Mode: 0},
+		{Name: "added", Mode: 0},
+	})
+	cmd := model.UpdateKey(tea.KeyPressMsg{Code: 'r'})
+	if cmd == nil {
+		t.Fatal("reload returned nil command")
+	}
+	var toastCmd tea.Cmd
+	for _, reloadCmd := range cmd().(tea.BatchMsg) {
+		_, returned := model.Update(reloadCmd().(browser.LoadResult))
+		if returned != nil {
+			toastCmd = returned
+		}
+	}
+	if toastCmd == nil {
+		t.Fatal("reload completion returned no toast command")
+	}
+	if got := model.toast; got != "Reloaded" {
+		t.Fatalf("toast = %q, want reload summary", got)
+	}
+
+	timeout, ok := toastCmd().(toastTimeoutMsg)
+	if !ok {
+		t.Fatalf("toast command message = %T, want toastTimeoutMsg", toastCmd())
+	}
+	model.Update(timeout)
+	if model.toast != "" {
+		t.Fatalf("toast = %q, want cleared after timeout", model.toast)
+	}
+}
+
+func TestStaleToastTimerDoesNotClearNewerToast(t *testing.T) {
+	previousDuration := toastDisplayDuration
+	toastDisplayDuration = time.Millisecond
+	defer func() { toastDisplayDuration = previousDuration }()
+
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+
+	reloadOnce := func() tea.Cmd {
+		cmd := model.UpdateKey(tea.KeyPressMsg{Code: 'r'})
+		if cmd == nil {
+			t.Fatal("reload returned nil command")
+		}
+		_, returned := model.Update(cmd().(browser.LoadResult))
+		if returned == nil {
+			t.Fatal("reload completion returned no toast command")
+		}
+		return returned
+	}
+
+	first := reloadOnce()
+	if got := model.toast; got != "Reloaded" {
+		t.Fatalf("toast = %q, want first reload summary", got)
+	}
+	second := reloadOnce()
+	if got := model.toast; got != "Reloaded" {
+		t.Fatalf("toast = %q, want second reload summary", got)
+	}
+
+	model.Update(first().(toastTimeoutMsg))
+	if model.toast == "" {
+		t.Fatal("stale timer cleared the newer toast")
+	}
+	model.Update(second().(toastTimeoutMsg))
+	if model.toast != "" {
+		t.Fatalf("toast = %q, want cleared by the current timer", model.toast)
+	}
+}
+
+func TestReloadDoesNotToastOnError(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	fake.setError(root, errors.New("reload failed"))
+	if cmd := model.UpdateKey(tea.KeyPressMsg{Code: 'r'}); cmd == nil {
+		t.Fatal("reload returned nil command")
+	} else if _, toast := model.Update(cmd().(browser.LoadResult)); toast != nil {
+		t.Fatalf("failed reload returned command %v, want nil", toast)
+	}
+	if model.toast != "" {
+		t.Fatalf("toast = %q after failed reload, want none", model.toast)
+	}
+}
+
+func TestReloadMixedFailureKeepsErrorAndSuppressesToast(t *testing.T) {
+	root := t.TempDir()
+	directoryPath := filepath.Join(root, "directory")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "directory", Mode: fs.ModeDir}})
+	fake.set(directoryPath, []filesystem.Entry{{Name: "file", Mode: 0}})
+
+	for _, errorFirst := range []bool{false, true} {
+		delete(fake.errors, cleanAbsolute(directoryPath))
+		model := NewModel(root, "", fake)
+		completeInitialLoad(t, model)
+		model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+		if cmd := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd == nil {
+			t.Fatal("expand returned nil command")
+		} else {
+			model.Update(cmd().(browser.LoadResult))
+		}
+
+		fake.setError(directoryPath, errors.New("read failed"))
+		cmd := model.UpdateKey(tea.KeyPressMsg{Code: 'r'})
+		if cmd == nil {
+			t.Fatal("reload returned nil command")
+		}
+		batch := cmd().(tea.BatchMsg)
+		if len(batch) != 2 {
+			t.Fatalf("reload batch = %d commands, want 2", len(batch))
+		}
+		results := make([]browser.LoadResult, 0, len(batch))
+		for _, reloadCmd := range batch {
+			results = append(results, reloadCmd().(browser.LoadResult))
+		}
+
+		var toastCmd tea.Cmd
+		if errorFirst {
+			for index := len(results) - 1; index >= 0; index-- {
+				_, returned := model.Update(results[index])
+				if returned != nil {
+					toastCmd = returned
+				}
+			}
+		} else {
+			for _, result := range results {
+				_, returned := model.Update(result)
+				if returned != nil {
+					toastCmd = returned
+				}
+			}
+		}
+
+		if toastCmd != nil {
+			t.Fatalf("mixed-failure reload (errorFirst=%v) returned command %v, want nil", errorFirst, toastCmd)
+		}
+		if model.toast != "" {
+			t.Fatalf("toast = %q after mixed failure, want none", model.toast)
+		}
+		if !strings.Contains(model.status, "Error:") {
+			t.Fatalf("status = %q after mixed failure, want Error retained", model.status)
+		}
+	}
+}
+
+func TestReloadToastRendersInFooter(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
+
+	if cmd := model.UpdateKey(tea.KeyPressMsg{Code: 'r'}); cmd == nil {
+		t.Fatal("reload returned nil command")
+	} else {
+		model.Update(cmd().(browser.LoadResult))
+	}
+	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
+	footer := lines[len(lines)-1]
+	if !strings.HasPrefix(footer, " Reloaded") {
+		t.Fatalf("footer = %q, want reload toast with the standard left padding", footer)
+	}
+	if got := strings.TrimRight(footer, " "); got != " Reloaded" {
+		t.Fatalf("footer = %q, want only the reload toast", got)
 	}
 }
 

@@ -44,6 +44,40 @@ func TestInitialLoadReadsGitStatusThroughTheCommandOnce(t *testing.T) {
 	}
 }
 
+func TestReloadKeyRefreshesGitStatusSnapshot(t *testing.T) {
+	root := t.TempDir()
+	fake := newStatusFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+	fake.statuses = []filesystem.GitStatusEntry{
+		{Path: "file", Status: filesystem.GitStatusModified},
+	}
+	model := NewModel(root, "", fake)
+	model.Update(model.Init()().(browser.LoadResult))
+	if fake.statusCalls != 1 {
+		t.Fatalf("initial Git status calls = %d, want 1", fake.statusCalls)
+	}
+
+	fake.statuses = []filesystem.GitStatusEntry{
+		{Path: "file", Status: filesystem.GitStatusUntracked},
+	}
+	cmd := model.UpdateKey(tea.KeyPressMsg{Code: 'r'})
+	if cmd == nil {
+		t.Fatal("reload returned nil command")
+	}
+	result, ok := cmd().(browser.LoadResult)
+	if !ok {
+		t.Fatalf("reload message = %T, want browser.LoadResult", cmd())
+	}
+	model.Update(result)
+
+	if fake.statusCalls != 2 {
+		t.Fatalf("Git status calls after reload = %d, want 2", fake.statusCalls)
+	}
+	if got := model.tree.GitStatusForPath(filepath.Join(root, "file")); got != browser.GitStatusUntracked {
+		t.Fatalf("status after reload = %v, want untracked", got)
+	}
+}
+
 func TestGitStatusColorsRowsAndAggregatesDirectories(t *testing.T) {
 	root := t.TempDir()
 	fake := newStatusFileSystem()

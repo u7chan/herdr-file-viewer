@@ -83,6 +83,11 @@ viewer reports a warning and falls back to the workspace or process cwd.
 - Mouse wheel over the tree: scroll three rows per wheel event.
 - The rightmost tree column is a scrollbar. Click its track to jump, or drag its thumb to scroll. Scrollbar movement keeps the selected row in the viewport and does not read the filesystem.
 - `Space` / full-width `U+3000`: copy the selected absolute path through OSC 52.
+- `r`: reload the tree: every previously read directory is re-scanned and the
+  Git status snapshot is refreshed together. Expansion state survives and the
+  selection stays on its path, falling back to the last visible row when the
+  entry no longer exists. Completion is confirmed by a brief in-app toast in
+  the footer, so the reload feedback does not depend on Herdr settings.
 - `Enter`: reserved for a future action and intentionally has no effect.
 - Right click and other unassigned input: no effect.
 - `q` / `Ctrl+C`: quit. Bubble Tea restores the alternate screen, mouse mode,
@@ -93,10 +98,11 @@ pane, a full-width `─` divider follows the title and another one separates the
 tree from the bottom-fixed Footer. The root HOME path is pinned immediately
 below the title divider; only its descendants scroll. The tree and Footer have
 a small left inset. The Footer contains
-`space copy    q quit` during normal operation, with the key labels emphasized
+`space copy    r reload    q quit` during normal operation, with the key labels emphasized
 and the action labels muted; loading, warning, or error status replaces those
-hints when relevant. Copy confirmation is provided by Herdr's toast. Very
-small panes omit dividers when there is no room for them.
+hints when relevant, and a brief toast (`Reloaded`) appears for a few
+seconds after `r`. Very small panes omit dividers when there is no room for
+them.
 The divider and scrollbar use portable box-drawing/block glyphs rather than a
 Nerd Font-specific glyph; the file tree icons remain Nerd Font glyphs.
 

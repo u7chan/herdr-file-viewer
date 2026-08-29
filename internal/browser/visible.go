@@ -58,7 +58,8 @@ func appendVisibleRows(rows *[]VisibleRow, node *Node, depth int) {
 		Node:  node,
 		Depth: depth,
 	})
-	if !node.expanded || !node.loaded {
+	// Cached children stay visible while a reload keeps the node unloaded.
+	if !node.expanded || (!node.loaded && len(node.children) == 0) {
 		return
 	}
 

@@ -382,6 +382,189 @@ func TestApplyLoadRejectsStaleResultWithoutClearingCurrentRequest(t *testing.T) 
 	}
 }
 
+func TestReloadReReadsLoadedDirectoriesPreservingExpansion(t *testing.T) {
+	rootPath := filepath.Join("workspace", "root")
+	childPath := filepath.Join(rootPath, "child")
+	fake := newFakeFileSystem()
+	fake.set(rootPath, []filesystem.Entry{{Name: "child", Mode: fs.ModeDir}})
+	fake.set(childPath, []filesystem.Entry{{Name: "file", Mode: 0}})
+	tree := mustTree(t, rootPath, fake)
+
+	rootRequest, ok := tree.Expand(tree.Root())
+	if !ok {
+		t.Fatal("Expand(root) started no load")
+	}
+	if !tree.ApplyLoad(tree.Read(rootRequest)) {
+		t.Fatal("ApplyLoad(root) rejected result")
+	}
+	child := tree.Root().Children()[0]
+	childRequest, ok := tree.Expand(child)
+	if !ok {
+		t.Fatal("Expand(child) started no load")
+	}
+	if !tree.ApplyLoad(tree.Read(childRequest)) {
+		t.Fatal("ApplyLoad(child) rejected result")
+	}
+	_ = tree.VisibleRows()
+
+	fake.set(childPath, []filesystem.Entry{{Name: "renamed", Mode: 0}})
+	requests := tree.Reload()
+	if len(requests) != 2 {
+		t.Fatalf("Reload() requests = %d, want 2", len(requests))
+	}
+	if tree.Root().Loaded() || !tree.Root().Loading() {
+		t.Fatalf("reload root state = loaded %v, loading %v; want fresh read", tree.Root().Loaded(), tree.Root().Loading())
+	}
+	if got := tree.Root().Children(); len(got) != 1 || got[0] != child {
+		t.Fatalf("root children during reload = %v, want cached child retained", got)
+	}
+	if !tree.Root().Expanded() || !child.Expanded() {
+		t.Fatal("Reload() cleared expansion state")
+	}
+	if rows := tree.VisibleRows(); len(rows) != 3 {
+		t.Fatalf("visible rows during reload = %d, want cached 3", len(rows))
+	}
+
+	for _, request := range requests {
+		if !tree.ApplyLoad(tree.Read(request)) {
+			t.Fatalf("ApplyLoad(%q) rejected reload result", request.Path)
+		}
+	}
+	if children := child.Children(); len(children) != 1 || children[0].Name() != "renamed" {
+		t.Fatalf("children after reload = %v, want renamed", children)
+	}
+	if !child.Expanded() {
+		t.Fatal("reload lost the child expansion state")
+	}
+	if rows := tree.VisibleRows(); len(rows) != 3 {
+		t.Fatalf("visible rows after reload = %d, want 3", len(rows))
+	}
+	wantCalls := []string{tree.Root().Path(), absoluteFakePath(childPath), tree.Root().Path(), absoluteFakePath(childPath)}
+	if got := fake.calls(); !reflect.DeepEqual(got, wantCalls) {
+		t.Fatalf("filesystem calls = %v, want %v", got, wantCalls)
+	}
+}
+
+func TestReloadKeepsCachedRowsVisibleAfterStructureChanges(t *testing.T) {
+	rootPath := filepath.Join("workspace", "root")
+	alphaPath := filepath.Join(rootPath, "alpha")
+	fake := newFakeFileSystem()
+	fake.set(rootPath, []filesystem.Entry{
+		{Name: "alpha", Mode: fs.ModeDir},
+		{Name: "beta", Mode: fs.ModeDir},
+	})
+	fake.set(alphaPath, []filesystem.Entry{{Name: "file", Mode: 0}})
+	tree := mustTree(t, rootPath, fake)
+
+	rootRequest, ok := tree.Expand(tree.Root())
+	if !ok {
+		t.Fatal("Expand(root) started no load")
+	}
+	if !tree.ApplyLoad(tree.Read(rootRequest)) {
+		t.Fatal("ApplyLoad(root) rejected result")
+	}
+	alpha := tree.Root().Children()[0]
+	alphaRequest, ok := tree.Expand(alpha)
+	if !ok {
+		t.Fatal("Expand(alpha) started no load")
+	}
+	if !tree.ApplyLoad(tree.Read(alphaRequest)) {
+		t.Fatal("ApplyLoad(alpha) rejected result")
+	}
+	if rows := tree.VisibleRows(); len(rows) != 4 {
+		t.Fatalf("visible rows = %d, want root, alpha, file, beta", len(rows))
+	}
+
+	requests := tree.Reload()
+	if len(requests) != 2 {
+		t.Fatalf("Reload() requests = %d, want 2", len(requests))
+	}
+
+	// Structural changes while the reload is in flight must not collapse the
+	// cached subtree display to the root row.
+	if !tree.Collapse(alpha) {
+		t.Fatal("Collapse(alpha) during reload failed")
+	}
+	if rows := tree.VisibleRows(); len(rows) != 3 {
+		t.Fatalf("rows after collapse during reload = %d, want root, alpha, beta", len(rows))
+	}
+	tree.Expand(alpha)
+	if rows := tree.VisibleRows(); len(rows) != 4 {
+		t.Fatalf("rows after re-expand during reload = %d, want cached 4", len(rows))
+	}
+
+	for _, request := range requests {
+		if !tree.ApplyLoad(tree.Read(request)) {
+			t.Fatalf("ApplyLoad(%q) rejected reload result", request.Path)
+		}
+	}
+	if rows := tree.VisibleRows(); len(rows) != 4 {
+		t.Fatalf("rows after reload = %d, want 4", len(rows))
+	}
+	if !alpha.Expanded() {
+		t.Fatal("alpha expansion state was lost across reload")
+	}
+}
+
+func TestReloadSkipsInFlightReadsAndRetriesFailedDirectories(t *testing.T) {
+	rootPath := filepath.Join("workspace", "root")
+	childPath := filepath.Join(rootPath, "child")
+	fake := newFakeFileSystem()
+	fake.set(rootPath, []filesystem.Entry{{Name: "child", Mode: fs.ModeDir}})
+	fake.set(childPath, []filesystem.Entry{{Name: "file", Mode: 0}})
+	fake.setError(childPath, errors.New("read failed"))
+	tree := mustTree(t, rootPath, fake)
+
+	rootRequest, ok := tree.Expand(tree.Root())
+	if !ok {
+		t.Fatal("Expand(root) started no load")
+	}
+	if requests := tree.Reload(); requests != nil {
+		t.Fatalf("Reload() during in-flight read = %v, want nil", requests)
+	}
+	if !tree.Root().Loading() {
+		t.Fatal("Reload() dropped the outstanding request")
+	}
+	if !tree.ApplyLoad(tree.Read(rootRequest)) {
+		t.Fatal("ApplyLoad() rejected in-flight result")
+	}
+
+	child := tree.Root().Children()[0]
+	childRequest, ok := tree.Expand(child)
+	if !ok {
+		t.Fatal("Expand(child) started no load")
+	}
+	if !tree.ApplyLoad(tree.Read(childRequest)) {
+		t.Fatal("ApplyLoad(child) rejected failed result")
+	}
+	if child.Loaded() || child.LoadError() == nil {
+		t.Fatalf("failed child state = loaded %v, error %v; want recoverable error", child.Loaded(), child.LoadError())
+	}
+
+	delete(fake.errors, absoluteFakePath(childPath))
+	requests := tree.Reload()
+	if len(requests) != 2 {
+		t.Fatalf("Reload() requests = %d, want root and failed child", len(requests))
+	}
+	if child.LoadError() != nil || child.Loaded() {
+		t.Fatalf("Reload() did not reset the failed read: error %v, loaded %v", child.LoadError(), child.Loaded())
+	}
+	if !child.Loading() {
+		t.Fatal("Reload() did not mark the failed child loading")
+	}
+	for _, request := range requests {
+		if !tree.ApplyLoad(tree.Read(request)) {
+			t.Fatalf("ApplyLoad(%q) rejected reload result", request.Path)
+		}
+	}
+	if !child.Loaded() || child.LoadError() != nil {
+		t.Fatalf("failed child state after reload = loaded %v, error %v; want success", child.Loaded(), child.LoadError())
+	}
+	if children := child.Children(); len(children) != 1 || children[0].Name() != "file" {
+		t.Fatalf("children after reload retry = %v, want file", children)
+	}
+}
+
 func mustTree(t *testing.T, rootPath string, fake *fakeFileSystem) *Tree {
 	t.Helper()
 	tree, err := NewTree(rootPath, fake)
