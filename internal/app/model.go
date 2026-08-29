@@ -845,6 +845,7 @@ func (m *Model) renderTreeRow(index int, prefix, icon, name string, status brows
 	iconSpan := iconStyle(icon)
 	if index == m.selected {
 		iconSpan = iconSpan.Background(selectedRowBackground)
+		nameStyle = nameStyle.Background(selectedRowBackground)
 	}
 
 	prefix = truncateToWidth(prefix, width)
