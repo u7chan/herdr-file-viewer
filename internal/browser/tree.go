@@ -126,6 +126,38 @@ func (t *Tree) Collapse(node *Node) bool {
 	return true
 }
 
+// Reload invalidates every directory that has cached children or a failed
+// read, and returns requests to re-read them. Cached children stay visible
+// until the fresh read is applied, so the node graph stays connected and
+// expansion state survives; directories with an outstanding in-flight read
+// are left to their pending result. The caller issues the returned requests
+// and applies the results through ApplyLoad in its update loop.
+func (t *Tree) Reload() []LoadRequest {
+	if t == nil || t.root == nil {
+		return nil
+	}
+
+	var requests []LoadRequest
+	stack := []*Node{t.root}
+	for len(stack) > 0 {
+		node := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		if node.loaded || node.loadError != nil {
+			node.loading = true
+			node.loaded = false
+			node.loadError = nil
+			requests = append(requests, LoadRequest{Node: node, Path: node.path})
+		}
+		for _, child := range node.children {
+			if child.IsDirectory() {
+				stack = append(stack, child)
+			}
+		}
+	}
+	return requests
+}
+
 // Read executes a request without changing any node state. It is intended to
 // be called from a command goroutine; ApplyLoad is the mutation boundary.
 func (t *Tree) Read(request LoadRequest) LoadResult {
@@ -143,6 +175,17 @@ func (t *Tree) Read(request LoadRequest) LoadResult {
 // same command. It performs no tree mutation; the caller applies the result
 // through ApplyLoad in its update loop.
 func (t *Tree) ReadInitial(request LoadRequest) LoadResult {
+	return t.readDirectory(request)
+}
+
+// ReadReload executes a reload request. A directory read is plain; the root
+// request also refreshes the Git status so a reload reflects filesystem and
+// VCS changes together. It performs no tree mutation.
+func (t *Tree) ReadReload(request LoadRequest) LoadResult {
+	return t.readDirectory(request)
+}
+
+func (t *Tree) readDirectory(request LoadRequest) LoadResult {
 	result := t.Read(request)
 	if t != nil && request.Node == t.root {
 		result.GitStatus = t.ReadGitStatus()
@@ -201,16 +244,24 @@ func (t *Tree) ApplyLoad(result LoadResult) bool {
 		return cmp.Compare(left.Name, right.Name)
 	})
 
+	// Reuse the node of the same path and kind so a reload keeps expansion
+	// state and any already-applied descendant reads, regardless of the order
+	// in which the reload results arrive.
+	previous := make(map[string]*Node, len(node.children))
+	for _, old := range node.children {
+		previous[old.path] = old
+	}
 	for _, entry := range entries {
 		if entry.Name == gitEntryName {
 			continue
 		}
-		children = append(children, newChildNode(
-			node,
-			filepath.Join(node.path, entry.Name),
-			entry.Name,
-			kindForEntry(entry),
-		))
+		kind := kindForEntry(entry)
+		path := filepath.Join(node.path, entry.Name)
+		child := previous[path]
+		if child == nil || child.kind != kind {
+			child = newChildNode(node, path, entry.Name, kind)
+		}
+		children = append(children, child)
 	}
 
 	node.children = children
