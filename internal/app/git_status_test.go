@@ -109,9 +109,11 @@ func TestGitStatusColorsRowsAndAggregatesDirectories(t *testing.T) {
 		{name: "modified", status: browser.GitStatusModified},
 		{name: "unmerged", status: browser.GitStatusUnmerged},
 	} {
-		styled := gitStatusStyle(test.status).Render(iconForTestName(test.name) + " " + test.name)
-		if !strings.Contains(view, styled) {
-			t.Errorf("view does not contain styled %s row: %q", test.name, view)
+		if !strings.Contains(view, gitStatusStyle(test.status).Render(" "+test.name)) {
+			t.Errorf("view does not color the %s name with its Git status: %q", test.name, view)
+		}
+		if strings.Contains(view, gitStatusStyle(test.status).Render(iconForTestName(test.name))) {
+			t.Errorf("Git status color leaked into the %s icon: %q", test.name, view)
 		}
 	}
 	if strings.Contains(view, gitStatusStyle(browser.GitStatusModified).Render(" clean")) {
@@ -125,6 +127,30 @@ func TestGitStatusColorsRowsAndAggregatesDirectories(t *testing.T) {
 				t.Fatalf("width %d line %d width = %d, want <= %d: %q", width, lineNumber, got, width, line)
 			}
 		}
+	}
+}
+
+func TestTreeRowsKeepIconPaletteColorSeparateFromGitStatusColor(t *testing.T) {
+	root := t.TempDir()
+	fake := newStatusFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "main.go", Mode: 0}})
+	fake.statuses = []filesystem.GitStatusEntry{
+		{Path: "main.go", Status: filesystem.GitStatusModified},
+	}
+	model := NewModel(root, "", fake)
+	model.Update(model.Init()().(browser.LoadResult))
+	model.Update(teaWindowSize(80, 10))
+	view := model.View().Content
+
+	goIcon := fileIconFor("main.go", iconsFor(defaultTreeIconSet).file)
+	if !strings.Contains(view, iconStyle(goIcon).Render(goIcon)) {
+		t.Errorf("view does not render the Go icon with its palette color: %q", view)
+	}
+	if strings.Contains(view, gitStatusStyle(browser.GitStatusModified).Render(goIcon)) {
+		t.Errorf("Git status color leaked into the Go icon: %q", view)
+	}
+	if !strings.Contains(view, gitStatusStyle(browser.GitStatusModified).Render(" main.go")) {
+		t.Errorf("view does not color the file name with its Git status: %q", view)
 	}
 }
 

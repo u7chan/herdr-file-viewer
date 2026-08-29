@@ -1,6 +1,7 @@
 package app
 
 import (
+	"image/color"
 	"io/fs"
 	"testing"
 
@@ -99,6 +100,75 @@ func TestAllFileIconsAreSingleCellWide(t *testing.T) {
 	for extension, icon := range extensionIcons {
 		if got := lipgloss.Width(icon); got != 1 {
 			t.Errorf("extensionIcons[%q] = %q has width %d, want 1", extension, icon, got)
+		}
+	}
+}
+
+func TestIconStyleAppliesThePaletteColorPerGlyphFamily(t *testing.T) {
+	tests := []struct {
+		name  string
+		glyph string
+		want  color.Color
+	}{
+		{name: "Go", glyph: "\ue627", want: lipgloss.Color("38")},
+		{name: "Rust", glyph: "\ue68b", want: lipgloss.Color("180")},
+		{name: "Markdown", glyph: "\ue609", want: lipgloss.Color("74")},
+		{name: "shell script", glyph: "\ue691", want: lipgloss.Color("114")},
+		{name: "Docker", glyph: "\ue7b0", want: lipgloss.Color("39")},
+		{name: "README", glyph: "\uf405", want: lipgloss.Color("74")},
+		{name: "directory closed", glyph: iconsFor(iconSetFontAwesomeSolid).directory, want: lipgloss.Color("179")},
+		{name: "directory open", glyph: iconsFor(iconSetFontAwesomeSolid).directoryOpen, want: lipgloss.Color("179")},
+		{name: "directory in every icon set", glyph: iconsFor(iconSetCodicon).directory, want: lipgloss.Color("179")},
+		{name: "symlink", glyph: symlinkTreeIcon, want: lipgloss.Color("81")},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := iconStyle(test.glyph).GetForeground(); got != test.want {
+				t.Fatalf("iconStyle(%q) foreground = %v, want %v", test.glyph, got, test.want)
+			}
+		})
+	}
+}
+
+func TestIconStyleLeavesUnlistedGlyphsUncolored(t *testing.T) {
+	for _, glyph := range []string{
+		rootTreeIcon,
+		collapsedTreeIcon,
+		expandedTreeIcon,
+		iconsFor(defaultTreeIconSet).file,
+		"\U000f9999",
+	} {
+		if got := iconStyle(glyph).Render(glyph); got != glyph {
+			t.Errorf("iconStyle(%q).Render() = %q, want the unstyled glyph", glyph, got)
+		}
+	}
+}
+
+func TestEveryPaletteKeyMatchesAKnownTreeGlyph(t *testing.T) {
+	known := map[string]bool{
+		symlinkTreeIcon: true,
+	}
+	for _, icon := range exactNameIcons {
+		known[icon] = true
+	}
+	for _, icon := range extensionIcons {
+		known[icon] = true
+	}
+	for _, set := range []treeIconSet{
+		iconSetFontAwesomeSolid,
+		iconSetFontAwesomeOutline,
+		iconSetMaterial,
+		iconSetCodicon,
+	} {
+		icons := iconsFor(set)
+		known[icons.directory] = true
+		known[icons.directoryOpen] = true
+	}
+
+	for glyph := range iconColorPalette {
+		if !known[glyph] {
+			t.Errorf("iconColorPalette key %q does not match any icon table glyph", glyph)
 		}
 	}
 }

@@ -1341,6 +1341,46 @@ func TestTerminalSafeSanitizationCoversDerivedStrings(t *testing.T) {
 	}
 }
 
+func TestRenderTreeRowSelectedNameKeepsBackground(t *testing.T) {
+	tests := []struct {
+		name   string
+		status browser.GitStatus
+	}{
+		{name: "plain file", status: browser.GitStatusNone},
+		{name: "git status file", status: browser.GitStatusModified},
+	}
+
+	// The row is a concatenation of separately styled spans, and lipgloss
+	// emits style codes even for empty spans, so assert that the background
+	// code sits directly before the name text. A bare "48;5;238" match could
+	// otherwise come from the prefix, icon, or trailing padding spans.
+	const name = "notes.md"
+	width := lipgloss.Width(name)
+	nameWithBackground := "48;5;238m" + name
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			selected := Model{selected: 2}
+			row := selected.renderTreeRow(2, "", "", name, test.status, width)
+			if !strings.Contains(row, nameWithBackground) {
+				t.Fatalf("selected name span missing background: %q", row)
+			}
+			if test.status == browser.GitStatusModified && !strings.Contains(row, "38;5;220") {
+				t.Fatalf("selected git-status name span lost status foreground: %q", row)
+			}
+
+			unselected := Model{selected: 3}
+			row = unselected.renderTreeRow(2, "", "", name, test.status, width)
+			if strings.Contains(row, nameWithBackground) {
+				t.Fatalf("unselected name span has background: %q", row)
+			}
+			if test.status == browser.GitStatusModified && !strings.Contains(row, "38;5;220") {
+				t.Fatalf("unselected git-status name span lost status foreground: %q", row)
+			}
+		})
+	}
+}
+
 // UpdateKey keeps the key-driven tests focused on the resulting command.
 func (m *Model) UpdateKey(key tea.KeyPressMsg) tea.Cmd {
 	_, cmd := m.Update(key)
