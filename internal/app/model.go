@@ -148,7 +148,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "space", "\u3000":
 			return m, m.copySelection()
 		case "r":
-			return m, m.reloadTree()
+			return m, m.reloadTree(true)
 		case "up", "k":
 			m.moveSelection(-1)
 		case "down", "j":
@@ -182,6 +182,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleMouseWheel(msg)
 	case tea.InterruptMsg:
 		return m, tea.Quit
+	case tea.FocusMsg:
+		// Refreshing on focus regain keeps status letters and ignore colors
+		// current for editors that report terminal focus; terminals without
+		// focus reporting fall back to the r key.
+		return m, m.reloadTree(false)
 	case tea.WindowSizeMsg:
 		m.width = nonNegative(msg.Width)
 		m.height = nonNegative(msg.Height)
@@ -198,6 +203,7 @@ func (m *Model) View() tea.View {
 		view := tea.NewView("")
 		view.AltScreen = true
 		view.MouseMode = tea.MouseModeCellMotion
+		view.ReportFocus = true
 		return view
 	}
 
@@ -224,6 +230,9 @@ func (m *Model) View() tea.View {
 	view := tea.NewView(strings.Join(lines, "\n"))
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
+	// Without focus reporting (DECSET 1004) the terminal never emits focus
+	// events, and the focus-return refresh in Update would be dead code.
+	view.ReportFocus = true
 	return view
 }
 
@@ -418,8 +427,9 @@ func (m *Model) startLoad(request browser.LoadRequest) tea.Cmd {
 // reloadTree re-scans every loaded directory and refreshes the Git snapshot.
 // Cached rows stay visible until the results land, then the selection is
 // re-anchored to its pre-reload path, falling back to the last visible row
-// when that path no longer exists.
-func (m *Model) reloadTree() tea.Cmd {
+// when that path no longer exists. showToast controls the completion toast so
+// focus-return refreshes stay quiet.
+func (m *Model) reloadTree(showToast bool) tea.Cmd {
 	if m == nil || m.tree == nil {
 		return nil
 	}
@@ -432,8 +442,12 @@ func (m *Model) reloadTree() tea.Cmd {
 	if node := m.selectedNode(); node != nil {
 		m.restorePath = node.Path()
 	}
-	m.reloadCount = len(requests)
 	m.reloadErrored = false
+	if showToast {
+		m.reloadCount = len(requests)
+	} else {
+		m.reloadCount = 0
+	}
 	commands := make([]tea.Cmd, 0, len(requests))
 	for _, request := range requests {
 		m.pending[request.Path] = struct{}{}
@@ -783,6 +797,10 @@ func (m *Model) renderTree(treeHeight int) []string {
 		line := strings.Repeat(" ", contentWidth)
 		if index >= stickyRootHeight && index < len(m.visibleRows) {
 			line = m.renderRowWidth(index, m.visibleRows[index], contentWidth)
+		} else if m.letterColumnReserved() {
+			// Empty padding rows keep the reserved gap+letter cells so the
+			// scrollbar stays in the same column.
+			line += "  "
 		}
 		lines[rowIndex] = leftPadding + line + m.renderScrollbarCell(rowIndex-stickyRootHeight, metrics)
 	}
@@ -803,8 +821,12 @@ func (m *Model) renderRowWidth(index int, row browser.VisibleRow, width int) str
 	}
 	name = sanitizeDisplay(name)
 	status := browser.GitStatusNone
+	ignored := false
 	if m.tree != nil {
 		status = m.tree.GitStatusForPath(row.Path)
+		// A status wins over ignore coloring; in practice they do not collide
+		// because git check-ignore never reports tracked files.
+		ignored = status == browser.GitStatusNone && m.tree.IsIgnored(row.Path)
 	}
 	var prefix string
 	var icon string
@@ -826,23 +848,28 @@ func (m *Model) renderRowWidth(index int, row browser.VisibleRow, width int) str
 		}
 		name = " " + name
 	}
-	return m.renderTreeRow(index, prefix, icon, name, status, width)
+	return m.renderTreeRow(index, prefix, icon, name, status, ignored, width)
 }
 
 // renderTreeRow paints a tree line as separate spans so the icon keeps its
 // palette color while the name follows the Git status and selection styles.
 // Spans are styled individually because an inner reset inside a single styled
-// span would drop the surrounding colors for the rest of the line.
-func (m *Model) renderTreeRow(index int, prefix, icon, name string, status browser.GitStatus, width int) string {
+// span would drop the surrounding colors for the rest of the line. An ignored
+// row greys out the icon and name; the trailing letter column is rendered
+// whenever the repository reserves it, even for statusless rows.
+func (m *Model) renderTreeRow(index int, prefix, icon, name string, status browser.GitStatus, ignored bool, width int) string {
 	rowStyle := lipgloss.NewStyle().Inline(true)
 	if index == m.selected {
 		rowStyle = selectedStyle.Inline(true)
 	}
 	nameStyle := lipgloss.NewStyle().Inline(true)
-	if status != browser.GitStatusNone {
+	iconSpan := iconStyle(icon)
+	if ignored {
+		nameStyle = ignoredRowStyle
+		iconSpan = ignoredRowStyle
+	} else if status != browser.GitStatusNone {
 		nameStyle = gitStatusStyle(status)
 	}
-	iconSpan := iconStyle(icon)
 	if index == m.selected {
 		iconSpan = iconSpan.Background(selectedRowBackground)
 		nameStyle = nameStyle.Background(selectedRowBackground)
@@ -864,7 +891,25 @@ func (m *Model) renderTreeRow(index int, prefix, icon, name string, status brows
 	if padding := width - prefixWidth - iconWidth - nameWidth; padding > 0 {
 		rendered += rowStyle.Render(strings.Repeat(" ", padding))
 	}
+
+	letterSpan := gitStatusStyle(status)
+	if letter := gitStatusLetter(status); letter != "" || m.letterColumnReserved() {
+		if letter == "" {
+			letter = " "
+			letterSpan = lipgloss.NewStyle().Inline(true)
+		}
+		if index == m.selected {
+			letterSpan = letterSpan.Background(selectedRowBackground)
+		}
+		rendered += rowStyle.Render(" ") + letterSpan.Render(letter)
+	}
 	return rendered
+}
+
+// letterColumnReserved reports whether the gap+letter column is kept for
+// every row, keeping the name truncate width stable across the tree.
+func (m *Model) letterColumnReserved() bool {
+	return m.tree != nil && m.tree.GitReady()
 }
 
 func (m *Model) renderScrollbarCell(row int, metrics scrollbarMetrics) string {
@@ -887,6 +932,10 @@ func (m *Model) renderDivider() string {
 
 func (m *Model) treeContentWidth() int {
 	width := m.width - 1 - m.contentLeftPadding()
+	if m.letterColumnReserved() {
+		// Gap + letter stay inside the scrollbar cell.
+		width -= 2
+	}
 	if width <= 0 {
 		return 0
 	}

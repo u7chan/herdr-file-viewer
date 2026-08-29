@@ -25,6 +25,13 @@ type GitStatusEntry struct {
 	Status GitStatus
 }
 
+// GitIgnoreReader is an optional filesystem capability for .gitignore
+// matching, kept separate from GitStatusReader so deterministic callers can
+// opt into each subprocess independently.
+type GitIgnoreReader interface {
+	ReadGitIgnore(path string, candidates []string) ([]string, error)
+}
+
 // GitStatusReader is an optional filesystem capability. FileSystem stays
 // focused on directory reads so deterministic callers that do not model Git
 // can continue to implement it without a subprocess dependency.
@@ -105,4 +112,45 @@ func gitStatusForXY(index, worktree byte) GitStatus {
 		return GitStatusUntracked
 	}
 	return GitStatusNone
+}
+
+// ReadGitIgnore reports which of the candidate paths (relative to path, the
+// working-tree root) match .gitignore rules. Tracked files never match,
+// which is the same behavior as VSCode's git.isIgnored. A non-working-tree
+// directory (or an absent Git executable) yields an error that callers may
+// treat as "no ignore rules"
+func (Local) ReadGitIgnore(path string, candidates []string) ([]string, error) {
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	command := exec.Command("git", "check-ignore", "--stdin", "-z", "--")
+	command.Dir = path
+	command.Stdin = strings.NewReader(strings.Join(candidates, "\x00") + "\x00")
+	output, err := command.Output()
+	if err != nil {
+		// Exit code 1 means nothing matched; every other failure means the
+		// directory is not a usable Git working tree.
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return parseGitIgnoreOutput(output), nil
+}
+
+func parseGitIgnoreOutput(output []byte) []string {
+	output = bytes.TrimSuffix(output, []byte{0})
+	if len(output) == 0 {
+		return nil
+	}
+	records := bytes.Split(output, []byte{0})
+	matches := make([]string, 0, len(records))
+	for _, record := range records {
+		if len(record) > 0 {
+			matches = append(matches, string(record))
+		}
+	}
+	return matches
 }

@@ -45,3 +45,23 @@ func TestGitStatusForXYRecognizesCombinedStatuses(t *testing.T) {
 		})
 	}
 }
+
+func TestParseGitIgnoreOutput(t *testing.T) {
+	tests := []struct {
+		name   string
+		output []byte
+		want   []string
+	}{
+		{name: "empty output", output: nil, want: nil},
+		{name: "trailing nul", output: []byte("a.txt\x00dir/\x00"), want: []string{"a.txt", "dir/"}},
+		{name: "missing trailing nul", output: []byte("a.txt\x00dir/\x00b.log"), want: []string{"a.txt", "dir/", "b.log"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := parseGitIgnoreOutput(test.output); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("parseGitIgnoreOutput(%q) = %#v, want %#v", test.output, got, test.want)
+			}
+		})
+	}
+}
