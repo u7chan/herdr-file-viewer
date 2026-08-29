@@ -124,6 +124,48 @@ func TestResolveRootFallsBackToProcessCWDWhenContextDirectoriesAreUnavailable(t 
 	}
 }
 
+// TestChdirRootMovesIntoTheRoot is intentionally sequential: ChdirRoot mutates
+// the process working directory, which is process-global state.
+func TestChdirRootMovesIntoTheRoot(t *testing.T) {
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(original); err != nil {
+			t.Errorf("restore cwd %q: %v", original, err)
+		}
+	})
+
+	dir := t.TempDir()
+	if err := ChdirRoot(dir); err != nil {
+		t.Fatalf("ChdirRoot(%q) error = %v", dir, err)
+	}
+	got, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	want, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", dir, err)
+	}
+	gotInfo, err := os.Stat(got)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", got, err)
+	}
+	if !os.SameFile(want, gotInfo) {
+		t.Fatalf("Getwd() = %q, want %q", got, dir)
+	}
+}
+
+func TestChdirRootReportsMissingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing")
+	if err := ChdirRoot(missing); err == nil {
+		t.Fatal("ChdirRoot() error = nil, want missing-directory error")
+	}
+}
+
 func lookup(values map[string]string) func(string) (string, bool) {
 	return func(key string) (string, bool) {
 		value, ok := values[key]

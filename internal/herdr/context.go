@@ -97,6 +97,18 @@ func ResolveRootAt(processCWD string, lookupEnv func(string) (string, bool)) (Ro
 	}, nil
 }
 
+// ChdirRoot moves the process into the resolved root so Herdr attributes the
+// viewed directory to this pane. Herdr launches plugin pane commands with the
+// plugin directory as their working directory, and pane splits inherit that
+// process cwd; without this chdir a split opened from the viewer pane would
+// start in the plugin directory instead of the directory being browsed.
+func ChdirRoot(path string) error {
+	if err := os.Chdir(path); err != nil {
+		return fmt.Errorf("enter root %q: %w", path, err)
+	}
+	return nil
+}
+
 func readSnapshot(lookupEnv func(string) (string, bool)) (ContextSnapshot, string) {
 	raw, ok := lookupEnv(contextJSONEnv)
 	if !ok || strings.TrimSpace(raw) == "" {

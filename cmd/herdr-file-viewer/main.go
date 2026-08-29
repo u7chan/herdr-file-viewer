@@ -23,6 +23,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if err := herdr.ChdirRoot(root.Path); err != nil {
+		return err
+	}
 
 	model := app.NewModel(root.Path, root.Warning)
 	_, err = tea.NewProgram(model).Run()

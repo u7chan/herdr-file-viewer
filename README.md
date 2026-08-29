@@ -72,6 +72,12 @@ The launch root is the `focused_pane_cwd` snapshot captured at startup. If the
 Herdr context is missing, invalid, or points to an unavailable directory, the
 viewer reports a warning and falls back to the workspace or process cwd.
 
+The viewer changes its process working directory into the launch root. Herdr
+launches plugin pane commands with the plugin directory as their working
+directory and pane splits inherit that pane's working directory, so without
+this change a split opened from the viewer pane would start in the plugin
+directory instead of the directory being browsed.
+
 ### Operations
 
 - `Up` / `Down` or `j` / `k`: move the selection one row without reading the filesystem; the viewport follows it.
