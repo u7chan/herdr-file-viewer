@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"io/fs"
 	"path/filepath"
 	"strings"
@@ -186,6 +187,208 @@ func TestIndentKeepsRootDirectChildrenAlignedAndCompressesOnlyFirstLevel(t *test
 	}
 }
 
+func TestGitStatusLettersFollowIssueDecisions(t *testing.T) {
+	tests := []struct {
+		name   string
+		status browser.GitStatus
+		want   string
+	}{
+		{name: "modified", status: browser.GitStatusModified, want: "M"},
+		{name: "added", status: browser.GitStatusAdded, want: "A"},
+		{name: "untracked is the new-file question mark", status: browser.GitStatusUntracked, want: "?"},
+		{name: "unmerged is the conflict U", status: browser.GitStatusUnmerged, want: "U"},
+		{name: "deleted", status: browser.GitStatusDeleted, want: "D"},
+		{name: "none", status: browser.GitStatusNone, want: ""},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := gitStatusLetter(test.status); got != test.want {
+				t.Fatalf("gitStatusLetter(%v) = %q, want %q", test.status, got, test.want)
+			}
+		})
+	}
+}
+
+func TestRenderTreeRowPaintsTheLetterColumnForRepositories(t *testing.T) {
+	root := t.TempDir()
+	fake := newStatusFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file.go", Mode: 0}})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+
+	m := Model{tree: model.tree, selected: 9}
+	tests := []struct {
+		name   string
+		status browser.GitStatus
+		letter string
+		color  string
+	}{
+		{name: "modified M", status: browser.GitStatusModified, letter: "M", color: "38;5;220"},
+		{name: "added A", status: browser.GitStatusAdded, letter: "A", color: "38;5;42"},
+		{name: "untracked question mark", status: browser.GitStatusUntracked, letter: "?", color: "38;5;42"},
+		{name: "unmerged U", status: browser.GitStatusUnmerged, letter: "U", color: "38;5;203"},
+		{name: "deleted D", status: browser.GitStatusDeleted, letter: "D", color: "38;5;203"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			row := m.renderTreeRow(2, "", "icon", "file.go", test.status, false, 20)
+			plain := ansi.Strip(row)
+			if !strings.HasSuffix(plain, test.letter) {
+				t.Fatalf("row = %q, want letter %q as the final cell", plain, test.letter)
+			}
+			if !strings.Contains(row, "\x1b["+test.color+"m"+test.letter) {
+				t.Fatalf("row = %q, want %s painted on %q", plain, test.color, test.letter)
+			}
+		})
+	}
+
+	// The reserved column stays blank on statusless rows so every line keeps
+	// the same truncate width.
+	row := m.renderTreeRow(2, "", "icon", "clean.go", browser.GitStatusNone, false, 20)
+	plain := ansi.Strip(row)
+	if strings.HasSuffix(plain, "M") || strings.HasSuffix(plain, "?") {
+		t.Fatalf("statusless row = %q, want blank letter cell", plain)
+	}
+}
+
+func TestRenderTreeRowGreysOutIgnoredRows(t *testing.T) {
+	root := t.TempDir()
+	fake := newStatusFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "ignored.log", Mode: 0}})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+
+	m := Model{tree: model.tree, selected: 9}
+	row := m.renderTreeRow(2, "", "icon", "ignored.log", browser.GitStatusNone, true, 20)
+	if got := strings.Count(row, "38;5;245"); got < 2 {
+		t.Fatalf("ignored row = %q, want grey icon and name (245) in both spans", row)
+	}
+	if strings.Contains(row, "38;5;220") {
+		t.Fatalf("ignored row = %q, must not carry a status color", row)
+	}
+
+	// The selected-row background still applies on top of the grey.
+	selected := Model{tree: model.tree, selected: 0}
+	row = selected.renderTreeRow(0, "  ", "icon", "ignored.log", browser.GitStatusNone, true, 20)
+	if !strings.Contains(row, "48;5;238") {
+		t.Fatalf("selected ignored row = %q, want selection background", row)
+	}
+
+	row = m.renderTreeRow(2, "", "icon", "normal.go", browser.GitStatusNone, false, 20)
+	if strings.Contains(row, "38;5;245") {
+		t.Fatalf("clean row = %q, must not be grey", row)
+	}
+}
+
+func TestFocusReturnRefreshesTreeWithoutToast(t *testing.T) {
+	root := t.TempDir()
+	fake := newStatusFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	statusCalls := fake.statusCalls
+
+	if _, cmd := model.Update(tea.FocusMsg{}); cmd == nil {
+		t.Fatal("FocusMsg returned nil command")
+	} else {
+		switch message := cmd().(type) {
+		case browser.LoadResult:
+			model.Update(message)
+		case tea.BatchMsg:
+			for _, reloadCmd := range message {
+				result, ok := reloadCmd().(browser.LoadResult)
+				if !ok {
+					t.Fatalf("focus reload message = %T, want browser.LoadResult", reloadCmd())
+				}
+				model.Update(result)
+			}
+		default:
+			t.Fatalf("FocusMsg command message = %T, want LoadResult or tea.BatchMsg", message)
+		}
+	}
+	if fake.statusCalls != statusCalls+1 {
+		t.Fatalf("Git status calls after focus = %d, want %d", fake.statusCalls, statusCalls+1)
+	}
+	if model.toast != "" {
+		t.Fatalf("focus refresh showed toast %q, want quiet refresh", model.toast)
+	}
+
+	fresh := NewModel(root, "", fake)
+	if _, cmd := fresh.Update(tea.FocusMsg{}); cmd != nil {
+		t.Fatal("FocusMsg before any load returned a command")
+	}
+}
+
+func TestTreeContentWidthReservesLetterColumnPerRepository(t *testing.T) {
+	root := t.TempDir()
+	fake := newStatusFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+
+	before := NewModel(root, "", fake)
+	before.Update(teaWindowSize(40, 10))
+	if got := before.treeContentWidth(); got != 40-1-1 {
+		t.Fatalf("pre-load content width = %d, want %d", got, 40-1-1)
+	}
+
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(teaWindowSize(40, 10))
+	if got := model.treeContentWidth(); got != 40-1-1-2 {
+		t.Fatalf("git content width = %d, want %d (gap + letter reserved)", got, 40-1-1-2)
+	}
+
+	errFake := newStatusFileSystem()
+	errFake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+	errFake.statusErr = errors.New("not a git worktree")
+	errModel := NewModel(root, "", errFake)
+	completeInitialLoad(t, errModel)
+	errModel.Update(teaWindowSize(40, 10))
+	if got := errModel.treeContentWidth(); got != 40-1-1 {
+		t.Fatalf("non-Git content width = %d, want %d (no reservation)", got, 40-1-1)
+	}
+}
+
+func TestViewAlignsLettersInOneColumnBeforeTheScrollbar(t *testing.T) {
+	root := t.TempDir()
+	fake := newStatusFileSystem()
+	fake.set(root, []filesystem.Entry{
+		{Name: "clean.go", Mode: 0},
+		{Name: "dir", Mode: fs.ModeDir},
+	})
+	fake.set(filepath.Join(root, "dir"), []filesystem.Entry{{Name: "inner.log", Mode: 0}})
+	fake.statuses = []filesystem.GitStatusEntry{
+		{Path: "clean.go", Status: filesystem.GitStatusUntracked},
+		{Path: "dir", Status: filesystem.GitStatusModified},
+	}
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(teaWindowSize(40, 8))
+
+	var column int
+	scrolled := 0
+	for _, line := range strings.Split(ansi.Strip(model.View().Content), "\n") {
+		if !strings.HasSuffix(line, scrollbarTrackGlyph) && !strings.HasSuffix(line, scrollbarThumbGlyph) {
+			continue
+		}
+		scrolled++
+		pos := lipgloss.Width(line) - 1
+		if column == 0 {
+			column = pos
+		} else if pos != column {
+			t.Fatalf("letter column drifted: line ends at %d, want %d (%q)", pos, column, line)
+		}
+		runes := []rune(line)
+		letter := runes[len(runes)-2]
+		if letter != ' ' && letter != 'M' && letter != '?' && letter != 'A' && letter != 'U' && letter != 'D' {
+			t.Fatalf("letter cell = %q, want M/A/?/U/D or blank", letter)
+		}
+	}
+	if scrolled < 2 {
+		t.Fatalf("scrollable lines = %d, want at least 2", scrolled)
+	}
+}
+
 // Keep the test's message construction independent of model.go's test-only
 // convenience wrappers.
 func teaWindowSize(width, height int) tea.WindowSizeMsg {
@@ -200,9 +403,11 @@ func iconForTestName(name string) string {
 }
 
 type statusFileSystem struct {
-	directories map[string][]filesystem.Entry
-	statuses    []filesystem.GitStatusEntry
-	statusCalls int
+	directories   map[string][]filesystem.Entry
+	statuses      []filesystem.GitStatusEntry
+	statusCalls   int
+	statusErr     error
+	ignoreMatches []string
 }
 
 func newStatusFileSystem() *statusFileSystem {
@@ -223,5 +428,12 @@ func (f *statusFileSystem) ReadDir(path string) ([]filesystem.Entry, error) {
 
 func (f *statusFileSystem) ReadGitStatus(string) ([]filesystem.GitStatusEntry, error) {
 	f.statusCalls++
+	if f.statusErr != nil {
+		return nil, f.statusErr
+	}
 	return append([]filesystem.GitStatusEntry(nil), f.statuses...), nil
+}
+
+func (f *statusFileSystem) ReadGitIgnore(string, []string) ([]string, error) {
+	return append([]string(nil), f.ignoreMatches...), nil
 }

@@ -1361,7 +1361,7 @@ func TestRenderTreeRowSelectedNameKeepsBackground(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			selected := Model{selected: 2}
-			row := selected.renderTreeRow(2, "", "", name, test.status, width)
+			row := selected.renderTreeRow(2, "", "", name, test.status, false, width)
 			if !strings.Contains(row, nameWithBackground) {
 				t.Fatalf("selected name span missing background: %q", row)
 			}
@@ -1370,7 +1370,7 @@ func TestRenderTreeRowSelectedNameKeepsBackground(t *testing.T) {
 			}
 
 			unselected := Model{selected: 3}
-			row = unselected.renderTreeRow(2, "", "", name, test.status, width)
+			row = unselected.renderTreeRow(2, "", "", name, test.status, false, width)
 			if strings.Contains(row, nameWithBackground) {
 				t.Fatalf("unselected name span has background: %q", row)
 			}
