@@ -18,9 +18,12 @@ copying. It does not provide preview, external actions, editing,
 install/distribution automation, or release tags.
 
 The supported validation target is Linux under WSL2 with Herdr 0.8.2 or newer.
-Native macOS and Windows validation is out of scope. A terminal used for
-copying must support OSC 52; otherwise the viewer still navigates, but the
-clipboard operation cannot be expected to reach the host clipboard.
+Native macOS and Windows validation is out of scope. Native Windows host
+support is not planned: the manifest is `platforms = ["linux"]`, and windows
+cross-builds are not expected to compile (`internal/herdr` uses
+`golang.org/x/sys/unix`). A terminal used for copying must support OSC 52;
+otherwise the viewer still navigates, but the clipboard operation cannot be
+expected to reach the host clipboard.
 No install package, distribution channel, or release artifact is provided.
 
 ## Requirements
