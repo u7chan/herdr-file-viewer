@@ -709,10 +709,11 @@ func (m *PreviewModel) contentWidth() int {
 	return max(0, m.width-m.contentLeftPadding()-m.gutterWidth()-2-1)
 }
 
-// gutterWidth is the maximum line-number width, always at least one cell for
-// the separator alignment.
+// gutterWidth is the maximum line-number width with a fixed two-digit
+// minimum, so the gutter keeps the content aligned until the line count
+// reaches three digits.
 func (m *PreviewModel) gutterWidth() int {
-	return len(strconv.Itoa(max(1, m.lineCount)))
+	return max(2, len(strconv.Itoa(max(1, m.lineCount))))
 }
 
 func (m *PreviewModel) readyStatus() string {
