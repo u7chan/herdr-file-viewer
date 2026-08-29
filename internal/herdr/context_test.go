@@ -166,6 +166,34 @@ func TestChdirRootReportsMissingDirectory(t *testing.T) {
 	}
 }
 
+func TestResolveRootFallsBackFromUnenterableDirectoryToWorkspace(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks are bypassed for root")
+	}
+
+	dir := t.TempDir()
+	unenterable := filepath.Join(dir, "unenterable")
+	workspace := filepath.Join(dir, "workspace")
+	mustMkdir(t, unenterable)
+	mustMkdir(t, workspace)
+	if err := os.Chmod(unenterable, 0o644); err != nil {
+		t.Fatalf("Chmod(%q): %v", unenterable, err)
+	}
+
+	got, err := ResolveRootAt(dir, lookup(map[string]string{
+		contextJSONEnv: `{"focused_pane_cwd":"` + unenterable + `","workspace_cwd":"` + workspace + `"}`,
+	}))
+	if err != nil {
+		t.Fatalf("ResolveRootAt() error = %v", err)
+	}
+	if got.Path != workspace || got.Source != WorkspaceRoot {
+		t.Fatalf("ResolveRootAt() = %#v, want workspace root %q", got, workspace)
+	}
+	if !strings.Contains(got.Warning, "not enterable") {
+		t.Fatalf("ResolveRootAt() warning = %q, want enterability reason", got.Warning)
+	}
+}
+
 func lookup(values map[string]string) func(string) (string, bool) {
 	return func(key string) (string, bool) {
 		value, ok := values[key]

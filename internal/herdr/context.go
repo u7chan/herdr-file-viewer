@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 const contextJSONEnv = "HERDR_PLUGIN_CONTEXT_JSON"
@@ -122,6 +124,10 @@ func readSnapshot(lookupEnv func(string) (string, bool)) (ContextSnapshot, strin
 	return snapshot, ""
 }
 
+// ensureDirectory requires a real directory the process can enter. Without
+// the search bit a candidate passes os.Stat but ChdirRoot would later fail
+// with EACCES; rejecting it here keeps the warning-and-fallback chain intact
+// instead of aborting startup.
 func ensureDirectory(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -129,6 +135,9 @@ func ensureDirectory(path string) error {
 	}
 	if !info.IsDir() {
 		return errors.New("not a directory")
+	}
+	if err := unix.Access(path, unix.X_OK); err != nil {
+		return fmt.Errorf("not enterable: %w", err)
 	}
 	return nil
 }
