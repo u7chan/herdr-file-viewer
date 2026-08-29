@@ -493,11 +493,11 @@ func TestPreviewWrapClampsVerticalOffsetToWrappedRows(t *testing.T) {
 	model.Update(tea.WindowSizeMsg{Width: 14, Height: 7})
 	model.Update(model.Init()().(previewLoadMsg))
 
-	// contentWidth is 9 (14 - padding - 2-digit gutter - separator - bar), so
+	// contentWidth is 8 (14 - padding - 2-digit gutter - 2-cell separator - bar), so
 	// every 10-cell line wraps into two segments; the horizontal bar takes a
 	// row, leaving a two-row body.
-	if model.contentWidth() != 9 {
-		t.Fatalf("contentWidth = %d, want 9", model.contentWidth())
+	if model.contentWidth() != 8 {
+		t.Fatalf("contentWidth = %d, want 8", model.contentWidth())
 	}
 	body := model.bodyHeight()
 	unwrappedMax := len(model.displayLines) - body
@@ -530,21 +530,21 @@ func TestPreviewRendersGutterNumbersAndBlankContinuations(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("one\nalphabetabcdefghij\nxyz")}
 	model := NewPreviewModel("/abs/multi.txt", nil, "", reader)
 	model.Update(tea.WindowSizeMsg{Width: 16, Height: 8})
-	model.Update(model.Init()().(previewLoadMsg)) // "alphabetabcdefghij" wraps at the 12-cell content width
+	model.Update(model.Init()().(previewLoadMsg)) // "alphabetabcdefghij" wraps at the 11-cell content width
 	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 'w', Text: "w"})
 
 	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
 	bodyStart := 1 + headerDividerHeight(model.height)
-	if !strings.HasPrefix(lines[bodyStart], " 1"+previewGutterDividerGlyph+"one") {
+	if !strings.HasPrefix(lines[bodyStart], " 1"+previewGutterDividerGlyph+" one") {
 		t.Fatalf("first body line = %q, want gutter 1", lines[bodyStart])
 	}
-	if !strings.HasPrefix(lines[bodyStart+1], " 2"+previewGutterDividerGlyph+"alphabetabcd") {
+	if !strings.HasPrefix(lines[bodyStart+1], " 2"+previewGutterDividerGlyph+" alphabetabc") {
 		t.Fatalf("wrapped head line = %q, want line number 2", lines[bodyStart+1])
 	}
-	if !strings.HasPrefix(lines[bodyStart+2], "  "+previewGutterDividerGlyph+"efghij") {
+	if !strings.HasPrefix(lines[bodyStart+2], "  "+previewGutterDividerGlyph+" defghij") {
 		t.Fatalf("continuation line = %q, want blank gutter", lines[bodyStart+2])
 	}
-	if !strings.HasPrefix(lines[bodyStart+3], " 3"+previewGutterDividerGlyph+"xyz") {
+	if !strings.HasPrefix(lines[bodyStart+3], " 3"+previewGutterDividerGlyph+" xyz") {
 		t.Fatalf("last body line = %q, want gutter 3", lines[bodyStart+3])
 	}
 }
