@@ -117,10 +117,14 @@ func TestGitStatusColorsRowsAndAggregatesDirectories(t *testing.T) {
 			t.Errorf("Git status color leaked into the %s icon: %q", test.name, view)
 		}
 	}
-	// The negative assertion includes the icon so a regression that paints
-	// icon+name with one status style is detected (issue #44 intake memo).
+	// Both spellings stay asserted so either regression class is caught: the
+	// name-only status style and the single-span icon+name style (issue #44
+	// intake memo).
+	if strings.Contains(view, gitStatusStyle(browser.GitStatusModified).Render(" clean")) {
+		t.Fatal("clean row name unexpectedly uses a Git status style")
+	}
 	if strings.Contains(view, gitStatusStyle(browser.GitStatusModified).Render(iconForTestName("clean")+" clean")) {
-		t.Fatal("clean row unexpectedly uses a Git status style")
+		t.Fatal("clean row icon+name unexpectedly share one Git status style")
 	}
 
 	for _, width := range []int{1, 8, 24, 80} {

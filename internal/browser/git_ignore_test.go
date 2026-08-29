@@ -177,6 +177,9 @@ func TestTreeGitIgnoreErrorDisablesIgnoreColoring(t *testing.T) {
 	if !tree.ApplyLoad(tree.ReadInitial(request)) {
 		t.Fatal("ApplyLoad() rejected initial result")
 	}
+	if fake.lastIgnoreInput != nil {
+		t.Fatalf("check-ignore was invoked for a non-Git directory: %v", fake.lastIgnoreInput)
+	}
 	if got := tree.IsIgnored(filepath.Join(root, "file")); got {
 		t.Fatal("non-Git directory reported a file as ignored")
 	}
