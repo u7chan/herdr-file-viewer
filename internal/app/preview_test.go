@@ -2,8 +2,10 @@ package app
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -347,7 +349,7 @@ func TestPreviewModelShowsUnsupportedLabelForBinaryCategory(t *testing.T) {
 	if strings.Contains(content, "PK") {
 		t.Fatalf("view = %q, must not show binary content", content)
 	}
-	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " w wrap    q close" {
+	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " w wrap    space copy    q close" {
 		t.Fatalf("footer = %q, want preview shortcuts", got)
 	}
 }
@@ -604,7 +606,7 @@ func TestPreviewRendersTitleFooterAndTruncatedMarker(t *testing.T) {
 	if !strings.Contains(lines[markerRow], "truncated (2 MiB limit)") {
 		t.Fatalf("body marker = %q, want truncated marker", lines[markerRow])
 	}
-	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " w wrap    q close" {
+	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " w wrap    space copy    q close" {
 		t.Fatalf("footer = %q, want preview shortcuts", got)
 	}
 }
@@ -618,7 +620,7 @@ func TestPreviewFooterShowsLoadingThenReadyAndWarning(t *testing.T) {
 		t.Fatalf("loading footer = %q, want %q", got, " "+previewLoadingStatus)
 	}
 	model.Update(previewLoadResult(t, model.Init()))
-	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " w wrap    q close" {
+	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " w wrap    space copy    q close" {
 		t.Fatalf("ready footer = %q, want shortcuts", got)
 	}
 
@@ -728,6 +730,312 @@ func TestPreviewRenderingStaysWithinCellWidth(t *testing.T) {
 	}
 }
 
+func TestPreviewCopySelectionWithoutSelectionShowsNoSelectionToast(t *testing.T) {
+	shortenPreviewToast(t)
+	reader := &fakePreviewReader{content: []byte("first\nsecond")}
+	model := NewPreviewModel("/abs/copy.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+	if !model.selection.empty() {
+		t.Fatalf("fresh model selection = %#v, want empty", model.selection)
+	}
+
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	if got := model.toast; got != previewNoSelectionStatus {
+		t.Fatalf("toast = %q, want %q", got, previewNoSelectionStatus)
+	}
+	if model.status != model.readyStatus() {
+		t.Fatalf("empty copy changed persistent status to %q, want %q", model.status, model.readyStatus())
+	}
+	// The only command is the toast timer; nothing is put on the clipboard.
+	timeout, ok := cmd().(previewToastTimeoutMsg)
+	if !ok {
+		t.Fatalf("space without selection command message = %T, want previewToastTimeoutMsg", cmd())
+	}
+	model.Update(timeout)
+	if model.toast != "" {
+		t.Fatalf("toast = %q, want cleared after timeout", model.toast)
+	}
+}
+
+func TestPreviewCopySelectionCommandsClipboardAndKeepsHighlight(t *testing.T) {
+	shortenPreviewToast(t)
+	reader := &fakePreviewReader{content: []byte("first\nsecond\nthird")}
+	model := NewPreviewModel("/abs/copy.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	selection := previewSelection{
+		anchor: previewPosition{line: 0, col: 1},
+		focus:  previewPosition{line: 1, col: 4},
+	}
+	model.selection = selection
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	if got := clipboardText(t, cmd); got != "irst\nseco" {
+		t.Fatalf("copied text = %q, want %q", got, "irst\nseco")
+	}
+	if want := "Copied 9 chars (2 lines)"; model.toast != want {
+		t.Fatalf("toast = %q, want %q", model.toast, want)
+	}
+	if model.status != model.readyStatus() {
+		t.Fatalf("copy changed persistent status to %q, want %q", model.status, model.readyStatus())
+	}
+	if model.selection != selection {
+		t.Fatalf("copy changed selection to %#v, want kept %#v", model.selection, selection)
+	}
+
+	// A second space re-copies the same selection.
+	_, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	if got := clipboardText(t, cmd); got != "irst\nseco" {
+		t.Fatalf("second copy text = %q, want %q", got, "irst\nseco")
+	}
+}
+
+func TestPreviewCopySelectionAcceptsFullWidthSpace(t *testing.T) {
+	shortenPreviewToast(t)
+	reader := &fakePreviewReader{content: []byte("first\nsecond")}
+	model := NewPreviewModel("/abs/copy.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+	model.selection = previewSelection{
+		anchor: previewPosition{line: 0, col: 1},
+		focus:  previewPosition{line: 0, col: 3},
+	}
+
+	_, cmd := model.Update(tea.KeyPressMsg{Code: '　', Text: "　"})
+	if got := clipboardText(t, cmd); got != "ir" {
+		t.Fatalf("full-width space copied text = %q, want %q", got, "ir")
+	}
+	if want := "Copied 2 chars"; model.toast != want {
+		t.Fatalf("toast = %q, want %q", model.toast, want)
+	}
+}
+
+func TestPreviewCopySelectionSingleLineStatusCountsRunes(t *testing.T) {
+	shortenPreviewToast(t)
+	reader := &fakePreviewReader{content: []byte("日本語a\nsecond")}
+	model := NewPreviewModel("/abs/copy.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	// CJK runes are three bytes each; the count must be in runes, not bytes.
+	model.selection = previewSelection{
+		anchor: previewPosition{line: 0, col: 0},
+		focus:  previewPosition{line: 0, col: 8},
+	}
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	if got := clipboardText(t, cmd); got != "日本語a" {
+		t.Fatalf("copied text = %q, want %q", got, "日本語a")
+	}
+	if want := "Copied 4 chars"; model.toast != want {
+		t.Fatalf("toast = %q, want %q", model.toast, want)
+	}
+}
+
+func TestPreviewCopyStatusFormatsRuneAndLineCounts(t *testing.T) {
+	single := previewSelection{anchor: previewPosition{line: 0, col: 1}, focus: previewPosition{line: 0, col: 4}}
+	if got, want := previewCopyStatus("abc", single), "Copied 3 chars"; got != want {
+		t.Fatalf("single-line copyStatus() = %q, want %q", got, want)
+	}
+	multi := previewSelection{anchor: previewPosition{line: 0, col: 0}, focus: previewPosition{line: 2, col: 1}}
+	if got, want := previewCopyStatus("a\nb\nc", multi), "Copied 5 chars (3 lines)"; got != want {
+		t.Fatalf("multi-line copyStatus() = %q, want %q", got, want)
+	}
+	if got := previewCopyStatus("", previewSelection{}); got != "" {
+		t.Fatalf("empty copyStatus() = %q, want empty", got)
+	}
+}
+
+func TestPreviewCopyOnUnsupportedCategoryReportsNoSelection(t *testing.T) {
+	shortenPreviewToast(t)
+	reader := &fakePreviewReader{content: []byte("PK\x03\x04")}
+	model := NewPreviewModel("/abs/bundle.zip", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	if got := model.toast; got != previewNoSelectionStatus {
+		t.Fatalf("toast = %q, want %q", got, previewNoSelectionStatus)
+	}
+	if model.status != model.readyStatus() {
+		t.Fatalf("unsupported copy changed persistent status to %q, want %q", model.status, model.readyStatus())
+	}
+	if _, ok := cmd().(previewToastTimeoutMsg); !ok {
+		t.Fatalf("space on unsupported category command message = %T, want previewToastTimeoutMsg", cmd())
+	}
+}
+
+func TestPreviewCopySelectionIsIndependentOfWrapAndXOffset(t *testing.T) {
+	shortenPreviewToast(t)
+	reader := &fakePreviewReader{content: []byte("aaaa bbbb cccc\ndddd eeee")}
+	model := NewPreviewModel("/abs/wrapcopy.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 18, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: tea.KeyRight})
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: tea.KeyRight})
+	if model.wrap || model.xoffset == 0 {
+		t.Fatalf("setup = wrap %v xoffset %d, want wrap off and scrolled right", model.wrap, model.xoffset)
+	}
+	selection := previewSelection{
+		anchor: previewPosition{line: 0, col: 2},
+		focus:  previewPosition{line: 1, col: 4},
+	}
+	model.selection = selection
+
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	unwrapped := clipboardText(t, cmd)
+
+	// Toggling wrap clears the selection; the same content selection stays
+	// valid in original coordinates and must extract identically.
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	model.selection = selection
+	_, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	wrapped := clipboardText(t, cmd)
+	if wrapped != unwrapped {
+		t.Fatalf("wrapped copy = %q, unwrapped = %q; extraction must not depend on wrap", wrapped, unwrapped)
+	}
+	if want := "aa bbbb cccc\ndddd"; wrapped != want {
+		t.Fatalf("copied text = %q, want %q", wrapped, want)
+	}
+	if want := "Copied 17 chars (2 lines)"; model.toast != want {
+		t.Fatalf("toast = %q, want %q", model.toast, want)
+	}
+}
+
+func TestPreviewCopyToastTimesOutAndFooterReturnsToHelp(t *testing.T) {
+	shortenPreviewToast(t)
+	reader := &fakePreviewReader{content: []byte("first\nsecond")}
+	model := NewPreviewModel("/abs/copy.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+	model.selection = previewSelection{
+		anchor: previewPosition{line: 0, col: 1},
+		focus:  previewPosition{line: 0, col: 3},
+	}
+
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	timeout := toastTimeoutOf(t, cmd)
+	footer := func() string {
+		lines := strings.Split(ansi.Strip(model.View().Content), "\n")
+		return strings.TrimRight(lines[len(lines)-1], " ")
+	}
+	if got := footer(); got != " Copied 2 chars" {
+		t.Fatalf("footer while toast visible = %q, want %q", got, " Copied 2 chars")
+	}
+	if strings.Contains(footer(), "space copy") {
+		t.Fatal("help row is visible while the toast is showing")
+	}
+
+	model.Update(timeout)
+	if model.toast != "" {
+		t.Fatalf("toast = %q, want cleared after timeout", model.toast)
+	}
+	if got := footer(); got != " w wrap    space copy    q close" {
+		t.Fatalf("footer after timeout = %q, want shortcuts", got)
+	}
+}
+
+func TestPreviewFooterToastOutranksStatusAndHelp(t *testing.T) {
+	shortenPreviewToast(t)
+	reader := &fakePreviewReader{content: []byte("first\nsecond")}
+	model := NewPreviewModel("/abs/copy.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	footer := func() string {
+		lines := strings.Split(ansi.Strip(model.View().Content), "\n")
+		return strings.TrimRight(lines[len(lines)-1], " ")
+	}
+	if got := footer(); got != " w wrap    space copy    q close" {
+		t.Fatalf("ready footer = %q, want shortcuts", got)
+	}
+
+	model.selection = previewSelection{
+		anchor: previewPosition{line: 0, col: 0},
+		focus:  previewPosition{line: 0, col: 2},
+	}
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	timeout := toastTimeoutOf(t, cmd)
+	if got := footer(); got != " Copied 2 chars" {
+		t.Fatalf("toast footer = %q, want %q", got, " Copied 2 chars")
+	}
+	if strings.Contains(footer(), "space copy") {
+		t.Fatal("help row is visible while the toast is showing")
+	}
+
+	// A persistent status is lower priority than the toast: it stays hidden
+	// until the toast times out.
+	model.status = "Error: boom"
+	if got := footer(); got != " Copied 2 chars" {
+		t.Fatalf("toast footer with non-ready status = %q, want %q", got, " Copied 2 chars")
+	}
+	model.Update(timeout)
+	if got := footer(); got != " Error: boom" {
+		t.Fatalf("footer after timeout = %q, want the status line", got)
+	}
+
+	model.status = model.readyStatus()
+	if got := footer(); got != " w wrap    space copy    q close" {
+		t.Fatalf("help footer when ready = %q, want shortcuts", got)
+	}
+}
+
+// shortenPreviewToast shortens the toast display time so running the timer
+// command in tests is fast and deterministic.
+func shortenPreviewToast(t testing.TB) {
+	t.Helper()
+	previousDuration := previewToastDuration
+	previewToastDuration = time.Millisecond
+	t.Cleanup(func() { previewToastDuration = previousDuration })
+}
+
+// copyMessages executes a copy command and returns every produced message,
+// unwrapping the toast/clipboard batch.
+func copyMessages(t testing.TB, cmd tea.Cmd) []tea.Msg {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("expected a copy command, got nil")
+	}
+	message := cmd()
+	batch, ok := message.(tea.BatchMsg)
+	if !ok {
+		return []tea.Msg{message}
+	}
+	messages := make([]tea.Msg, 0, len(batch))
+	for _, command := range batch {
+		messages = append(messages, command())
+	}
+	return messages
+}
+
+// toastTimeoutOf executes a copy command and returns its toast timer
+// message.
+func toastTimeoutOf(t testing.TB, cmd tea.Cmd) previewToastTimeoutMsg {
+	t.Helper()
+	for _, message := range copyMessages(t, cmd) {
+		if timeout, ok := message.(previewToastTimeoutMsg); ok {
+			return timeout
+		}
+	}
+	t.Fatalf("copy command produced no toast timer: %v", cmd())
+	return previewToastTimeoutMsg{}
+}
+
+// clipboardText runs a clipboard command and returns the copied text.
+// setClipboardMsg is unexported, so the payload is read via reflection.
+// Copy feedback batches the clipboard command with the toast timer.
+func clipboardText(t testing.TB, cmd tea.Cmd) string {
+	t.Helper()
+	for _, message := range copyMessages(t, cmd) {
+		value := reflect.ValueOf(message)
+		if value.Kind() == reflect.String {
+			return value.String()
+		}
+	}
+	t.Fatalf("copy command produced no clipboard message: %v", cmd())
+	return ""
+}
+
 func TestPreviewQuitsOnQAndCtrlC(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("x")}
 	model := NewPreviewModel("/abs/q.txt", nil, "", reader)
@@ -758,7 +1066,7 @@ func TestPreviewUnassignedKeysAreInert(t *testing.T) {
 		{Code: 'a', Text: "a"},
 		{Code: 'z', Text: "z"},
 		{Code: 'r', Text: "r"},
-		{Code: ' ', Text: " "},
+		{Code: 'y', Text: "y"},
 	} {
 		if _, cmd := model.Update(key); cmd != nil {
 			t.Fatalf("Update(%q) returned command %v, want nil", key.String(), cmd)
