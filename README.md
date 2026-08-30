@@ -167,8 +167,9 @@ Scrolling in the preview:
 - `r`: reload the displayed path from disk using the same 2 MiB head and text
   pipeline. The scroll position is clamped to the new content, wrap mode is
   preserved, and any selection is cleared. A successful reload shows a brief
-  `Reloaded` toast; if the initial read failed, `r` retries it. When
-  `HERDR_PREVIEW_FILE` is unset, `r` does nothing.
+  `Reloaded` toast; if a reload fails, the last successfully displayed content
+  is kept while a warning is shown. If the initial read failed, `r` retries it.
+  When `HERDR_PREVIEW_FILE` is unset, `r` does nothing.
 - Left-drag across preview body text selects and highlights it. Selection is
   visual only until `space` copies it (below). Clicking again resets the
   selection; vertical and horizontal scrolling keep it attached to the text,

@@ -360,6 +360,82 @@ func TestPreviewReloadKeyRefreshesContentAndPreservesViewState(t *testing.T) {
 	}
 }
 
+func TestPreviewReloadErrorKeepsPreviousContentAndViewState(t *testing.T) {
+	reader := &fakePreviewReader{
+		content:   []byte(strings.Repeat("0123456789abcdefghij\n", 20)),
+		truncated: true,
+	}
+	model := NewPreviewModel("/abs/reload-error.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 24, Height: 7})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	model.offset = 5
+	model.xoffset = 1
+	model.dragMode = previewDragVScroll
+	model.selection = previewSelection{
+		anchor: previewPosition{line: 1, col: 2},
+		focus:  previewPosition{line: 3, col: 4},
+	}
+	lines := append([]previewLine(nil), model.lines...)
+	displayLines := append([]previewLine(nil), model.displayLines...)
+	lineCount := model.lineCount
+	category := model.category
+	truncated := model.truncated
+	maxContentWidth := model.maxContentWidth
+	offset := model.offset
+	xoffset := model.xoffset
+	dragMode := model.dragMode
+	selection := model.selection
+
+	reader.err = errors.New("file disappeared")
+	_, cmd := model.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	if cmd == nil {
+		t.Fatal("reload returned nil command")
+	}
+	loadMessage := cmd()
+	message, ok := loadMessage.(previewLoadMsg)
+	if !ok {
+		t.Fatalf("reload command message = %T, want previewLoadMsg", loadMessage)
+	}
+	if !message.reload {
+		t.Fatal("reload message is not marked as a manual reload")
+	}
+	if _, cmd := model.Update(message); cmd != nil {
+		t.Fatalf("failed reload returned command %v, want nil", cmd)
+	}
+
+	if model.loading {
+		t.Fatal("model still loading after failed reload")
+	}
+	if !strings.Contains(model.status, "Warning: file disappeared") {
+		t.Fatalf("status = %q, want reload warning", model.status)
+	}
+	if model.warning != "file disappeared" {
+		t.Fatalf("warning = %q, want reload error", model.warning)
+	}
+	if !reflect.DeepEqual(model.lines, lines) {
+		t.Fatalf("lines changed after failed reload: %#v, want %#v", model.lines, lines)
+	}
+	if !reflect.DeepEqual(model.displayLines, displayLines) {
+		t.Fatalf("displayLines changed after failed reload: %#v, want %#v", model.displayLines, displayLines)
+	}
+	if model.lineCount != lineCount || model.category != category || model.truncated != truncated {
+		t.Fatalf("content metadata changed after failed reload: lineCount %d/%d category %q/%q truncated %v/%v", model.lineCount, lineCount, model.category, category, model.truncated, truncated)
+	}
+	if model.maxContentWidth != maxContentWidth {
+		t.Fatalf("maxContentWidth = %d, want unchanged %d", model.maxContentWidth, maxContentWidth)
+	}
+	if model.offset != offset || model.xoffset != xoffset {
+		t.Fatalf("scroll position changed after failed reload: offset %d/%d xoffset %d/%d", model.offset, offset, model.xoffset, xoffset)
+	}
+	if model.dragMode != dragMode {
+		t.Fatalf("drag mode = %d, want unchanged %d", model.dragMode, dragMode)
+	}
+	if model.selection != selection {
+		t.Fatalf("selection changed after failed reload: %#v, want %#v", model.selection, selection)
+	}
+}
+
 func TestPreviewReloadRetriesMissingFileAndClearsWarning(t *testing.T) {
 	shortenPreviewToast(t)
 	reader := &fakePreviewReader{err: errors.New("missing")}

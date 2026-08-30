@@ -368,19 +368,24 @@ func (m *PreviewModel) View() tea.View {
 
 func (m *PreviewModel) applyPreviewLoad(msg previewLoadMsg) tea.Cmd {
 	m.loading = false
-	m.displayLines = nil
-	m.maxContentWidth = 0
-	m.dragMode = previewDragNone
-	m.clearSelection()
 	if msg.err != "" {
-		m.lines = nil
-		m.lineCount = 0
-		m.category = ""
-		m.truncated = false
+		if m.lines == nil {
+			m.displayLines = nil
+			m.maxContentWidth = 0
+			m.dragMode = previewDragNone
+			m.clearSelection()
+			m.lineCount = 0
+			m.category = ""
+			m.truncated = false
+		}
 		m.warning = addWarning(m.warning, msg.err)
 		m.status = m.readyStatus()
 		return nil
 	}
+	m.displayLines = nil
+	m.maxContentWidth = 0
+	m.dragMode = previewDragNone
+	m.clearSelection()
 	m.warning = ""
 	m.file = msg.file
 	m.category = msg.category
