@@ -141,11 +141,11 @@ func TestBuildDisplayLinesKeepsHeadNumbersAndBlanksContinuations(t *testing.T) {
 	}
 	display := buildDisplayLines(lines, true, 4)
 	want := []previewLine{
-		{text: "shor", number: 1},
-		{text: "t", number: 0},
-		{text: "abcd", number: 2},
-		{text: "efgh", number: 0},
-		{text: "ij", number: 0},
+		{text: "shor", number: 1, origin: 0, col: 0},
+		{text: "t", number: 0, origin: 0, col: 4},
+		{text: "abcd", number: 2, origin: 1, col: 0},
+		{text: "efgh", number: 0, origin: 1, col: 4},
+		{text: "ij", number: 0, origin: 1, col: 8},
 	}
 	if len(display) != len(want) {
 		t.Fatalf("buildDisplayLines() = %#v, want %#v", display, want)
@@ -256,8 +256,8 @@ func TestPreviewModelWithoutFileWaitsForQuit(t *testing.T) {
 	if got := model.status; got != "Warning: "+model.warning {
 		t.Fatalf("preview status = %q, want warning", got)
 	}
-	if cmd := model.Init(); cmd != nil {
-		t.Fatal("Init() returned a command for an unset file")
+	if cmd := model.Init(); cmd == nil {
+		t.Fatal("Init() returned nil; want background color request")
 	}
 	if model.loading {
 		t.Fatal("model without file is loading")
@@ -274,10 +274,7 @@ func TestPreviewModelLoadsTextThroughCommand(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("Init() returned nil command")
 	}
-	message, ok := cmd().(previewLoadMsg)
-	if !ok {
-		t.Fatalf("Init() message = %T, want previewLoadMsg", cmd())
-	}
+	message := previewLoadResult(t, cmd)
 	if message.err != "" || message.category != previewCategoryText {
 		t.Fatalf("load message = %#v, want text without error", message)
 	}
@@ -323,7 +320,7 @@ func TestPreviewModelReportsMetadataTokenAtInit(t *testing.T) {
 func TestPreviewModelWarnsOnLoadErrorAndKeepsWaiting(t *testing.T) {
 	reader := &fakePreviewReader{err: errors.New("no such file\x1b")}
 	model := NewPreviewModel("/abs/missing.txt", nil, "", reader)
-	model.Update(model.Init()().(previewLoadMsg))
+	model.Update(previewLoadResult(t, model.Init()))
 	if model.loading {
 		t.Fatal("model still loading after error")
 	}
@@ -339,7 +336,7 @@ func TestPreviewModelShowsUnsupportedLabelForBinaryCategory(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("PK\x03\x04")}
 	model := NewPreviewModel("/abs/bundle.zip", nil, "", reader)
 	model.Update(tea.WindowSizeMsg{Width: 60, Height: 6})
-	model.Update(model.Init()().(previewLoadMsg))
+	model.Update(previewLoadResult(t, model.Init()))
 
 	content := ansi.Strip(model.View().Content)
 	lines := strings.Split(content, "\n")
@@ -388,7 +385,7 @@ func TestPreviewVerticalNavigationAndBoundaries(t *testing.T) {
 	reader := &fakePreviewReader{content: bytesRepeatContent(100)}
 	model := NewPreviewModel("/abs/lines.txt", nil, "", reader)
 	model.Update(tea.WindowSizeMsg{Width: 40, Height: 7})
-	model.Update(model.Init()().(previewLoadMsg))
+	model.Update(previewLoadResult(t, model.Init()))
 
 	body := model.bodyHeight()
 	maxOffset := model.maxVerticalOffset()
@@ -447,7 +444,7 @@ func TestPreviewHorizontalScrollOnlyWhenWrapOff(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte(strings.Repeat("abcdefghij", 20))}
 	model := NewPreviewModel("/abs/wide.txt", nil, "", reader)
 	model.Update(tea.WindowSizeMsg{Width: 24, Height: 7})
-	model.Update(model.Init()().(previewLoadMsg))
+	model.Update(previewLoadResult(t, model.Init()))
 
 	if !model.showHorizontalScrollbar() {
 		t.Fatal("wide line did not activate the horizontal scrollbar")
@@ -491,7 +488,7 @@ func TestPreviewWrapClampsVerticalOffsetToWrappedRows(t *testing.T) {
 	}, "\n"))}
 	model := NewPreviewModel("/abs/wrap.txt", nil, "", reader)
 	model.Update(tea.WindowSizeMsg{Width: 14, Height: 7})
-	model.Update(model.Init()().(previewLoadMsg))
+	model.Update(previewLoadResult(t, model.Init()))
 
 	// contentWidth is 8 (14 - padding - 2-digit gutter - 2-cell separator - bar), so
 	// every 10-cell line wraps into two segments; the horizontal bar takes a
@@ -530,7 +527,7 @@ func TestPreviewRendersGutterNumbersAndBlankContinuations(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("one\nalphabetabcdefghij\nxyz")}
 	model := NewPreviewModel("/abs/multi.txt", nil, "", reader)
 	model.Update(tea.WindowSizeMsg{Width: 16, Height: 8})
-	model.Update(model.Init()().(previewLoadMsg)) // "alphabetabcdefghij" wraps at the 10-cell content width
+	model.Update(previewLoadResult(t, model.Init())) // "alphabetabcdefghij" wraps at the 10-cell content width
 	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 'w', Text: "w"})
 
 	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
@@ -563,7 +560,7 @@ func TestPreviewBodyOmitsDividerWithoutGutter(t *testing.T) {
 			model: func() *PreviewModel {
 				reader := &fakePreviewReader{err: errors.New("boom")}
 				model := NewPreviewModel("/abs/missing.txt", nil, "", reader)
-				model.Update(model.Init()().(previewLoadMsg))
+				model.Update(previewLoadResult(t, model.Init()))
 				return model
 			}(),
 		},
@@ -572,7 +569,7 @@ func TestPreviewBodyOmitsDividerWithoutGutter(t *testing.T) {
 			model: func() *PreviewModel {
 				reader := &fakePreviewReader{content: []byte("PK\x03\x04")}
 				model := NewPreviewModel("/abs/bundle.zip", nil, "", reader)
-				model.Update(model.Init()().(previewLoadMsg))
+				model.Update(previewLoadResult(t, model.Init()))
 				return model
 			}(),
 		},
@@ -595,7 +592,7 @@ func TestPreviewRendersTitleFooterAndTruncatedMarker(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("short"), truncated: true}
 	model := NewPreviewModel("/abs/very-long-directory-name/file.txt", nil, "", reader)
 	model.Update(tea.WindowSizeMsg{Width: 32, Height: 6})
-	model.Update(model.Init()().(previewLoadMsg))
+	model.Update(previewLoadResult(t, model.Init()))
 
 	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
 	title := strings.TrimSpace(lines[0])
@@ -620,7 +617,7 @@ func TestPreviewFooterShowsLoadingThenReadyAndWarning(t *testing.T) {
 	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " "+previewLoadingStatus {
 		t.Fatalf("loading footer = %q, want %q", got, " "+previewLoadingStatus)
 	}
-	model.Update(model.Init()().(previewLoadMsg))
+	model.Update(previewLoadResult(t, model.Init()))
 	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " w wrap    q close" {
 		t.Fatalf("ready footer = %q, want shortcuts", got)
 	}
@@ -628,7 +625,7 @@ func TestPreviewFooterShowsLoadingThenReadyAndWarning(t *testing.T) {
 	errorReader := &fakePreviewReader{err: errors.New("boom")}
 	errorModel := NewPreviewModel("/abs/missing", nil, "", errorReader)
 	errorModel.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
-	errorModel.Update(errorModel.Init()().(previewLoadMsg))
+	errorModel.Update(previewLoadResult(t, errorModel.Init()))
 	if got := strings.TrimRight(ansi.Strip(strings.Split(errorModel.View().Content, "\n")[5]), " "); !strings.HasPrefix(got, " Warning: boom") {
 		t.Fatalf("warning footer = %q, want Warning prefix", got)
 	}
@@ -638,7 +635,7 @@ func TestPreviewMouseWheelAndScrollbarDrag(t *testing.T) {
 	reader := &fakePreviewReader{content: bytesRepeatContent(100)}
 	model := NewPreviewModel("/abs/wheel.txt", nil, "", reader)
 	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
-	model.Update(model.Init()().(previewLoadMsg))
+	model.Update(previewLoadResult(t, model.Init()))
 
 	startY := model.bodyStartY()
 	model.Update(tea.MouseWheelMsg{X: 0, Y: startY, Button: tea.MouseWheelDown})
@@ -656,7 +653,7 @@ func TestPreviewMouseWheelAndScrollbarDrag(t *testing.T) {
 
 	model.offset = 0
 	model.Update(tea.MouseClickMsg{X: model.width - 1, Y: startY + 1, Button: tea.MouseLeft})
-	if !model.draggingV {
+	if model.dragMode != previewDragVScroll {
 		t.Fatal("vertical scrollbar click did not start a drag")
 	}
 	model.Update(tea.MouseMotionMsg{X: model.width - 1, Y: startY + model.bodyHeight(), Button: tea.MouseLeft})
@@ -664,7 +661,7 @@ func TestPreviewMouseWheelAndScrollbarDrag(t *testing.T) {
 		t.Fatalf("vertical drag offset = %d, want %d", model.offset, model.maxVerticalOffset())
 	}
 	model.Update(tea.MouseReleaseMsg{X: model.width - 1, Y: startY + model.bodyHeight(), Button: tea.MouseLeft})
-	if model.draggingV {
+	if model.dragMode != previewDragNone {
 		t.Fatal("vertical release left dragging enabled")
 	}
 }
@@ -673,7 +670,7 @@ func TestPreviewHorizontalScrollbarRendersAndDrags(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte(strings.Repeat("abcdefghij", 30))}
 	model := NewPreviewModel("/abs/wide.txt", nil, "", reader)
 	model.Update(tea.WindowSizeMsg{Width: 26, Height: 7})
-	model.Update(model.Init()().(previewLoadMsg))
+	model.Update(previewLoadResult(t, model.Init()))
 
 	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
 	hbarRow := model.horizontalBarY()
@@ -683,7 +680,7 @@ func TestPreviewHorizontalScrollbarRendersAndDrags(t *testing.T) {
 	}
 
 	model.Update(tea.MouseClickMsg{X: 1, Y: hbarRow, Button: tea.MouseLeft})
-	if !model.draggingH {
+	if model.dragMode != previewDragHScroll {
 		t.Fatal("horizontal bar click did not start a drag")
 	}
 	model.Update(tea.MouseMotionMsg{X: model.width - 1, Y: hbarRow, Button: tea.MouseLeft})
@@ -691,14 +688,14 @@ func TestPreviewHorizontalScrollbarRendersAndDrags(t *testing.T) {
 		t.Fatalf("horizontal drag xoffset = %d, want %d", model.xoffset, model.maxHorizontalOffset())
 	}
 	model.Update(tea.MouseReleaseMsg{X: model.width - 1, Y: hbarRow, Button: tea.MouseLeft})
-	if model.draggingH {
+	if model.dragMode != previewDragNone {
 		t.Fatal("horizontal release left dragging enabled")
 	}
 
 	// Clicking the bar track while wrap is on must stay inert.
 	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 'w', Text: "w"})
 	model.Update(tea.MouseClickMsg{X: 1, Y: model.horizontalBarY(), Button: tea.MouseLeft})
-	if model.draggingH {
+	if model.dragMode == previewDragHScroll {
 		t.Fatal("wrap mode started a horizontal drag")
 	}
 }
@@ -707,7 +704,7 @@ func TestPreviewRenderingStaysWithinCellWidth(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("日本語の長い行\tと絵文字🙂\r\nsecond line")}
 	for _, wrap := range []bool{false, true} {
 		model := NewPreviewModel("/abs/wide-jp.txt", nil, "", reader)
-		model.Update(model.Init()().(previewLoadMsg))
+		model.Update(previewLoadResult(t, model.Init()))
 		if wrap {
 			model.UpdateKeyPreview(tea.KeyPressMsg{Code: 'w', Text: "w"})
 		} else {
@@ -734,7 +731,7 @@ func TestPreviewRenderingStaysWithinCellWidth(t *testing.T) {
 func TestPreviewQuitsOnQAndCtrlC(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("x")}
 	model := NewPreviewModel("/abs/q.txt", nil, "", reader)
-	model.Update(model.Init()().(previewLoadMsg))
+	model.Update(previewLoadResult(t, model.Init()))
 	for _, key := range []tea.KeyPressMsg{
 		{Code: 'q', Text: "q"},
 		{Code: 'c', Mod: tea.ModCtrl},
@@ -755,7 +752,7 @@ func TestPreviewQuitsOnQAndCtrlC(t *testing.T) {
 func TestPreviewUnassignedKeysAreInert(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("x")}
 	model := NewPreviewModel("/abs/q.txt", nil, "", reader)
-	model.Update(model.Init()().(previewLoadMsg))
+	model.Update(previewLoadResult(t, model.Init()))
 	offset, xoffset, wrap := model.offset, model.xoffset, model.wrap
 	for _, key := range []tea.KeyPressMsg{
 		{Code: 'a', Text: "a"},
@@ -776,7 +773,7 @@ func TestPreviewVerticalScrollbarRendersInBodyRows(t *testing.T) {
 	reader := &fakePreviewReader{content: bytesRepeatContent(50)}
 	model := NewPreviewModel("/abs/scroll.txt", nil, "", reader)
 	model.Update(tea.WindowSizeMsg{Width: 30, Height: 7})
-	model.Update(model.Init()().(previewLoadMsg))
+	model.Update(previewLoadResult(t, model.Init()))
 
 	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
 	startY := model.bodyStartY()
@@ -811,4 +808,27 @@ func TestPreviewGutterWidthFollowsLineCountDigits(t *testing.T) {
 // UpdateKeyPreview keeps key-driven preview tests focused on state.
 func (m *PreviewModel) UpdateKeyPreview(key tea.KeyPressMsg) {
 	_, _ = m.Update(key)
+}
+
+func previewLoadResult(t testing.TB, cmd tea.Cmd) previewLoadMsg {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("Init() returned nil command")
+	}
+
+	message := cmd()
+	if result, ok := message.(previewLoadMsg); ok {
+		return result
+	}
+	batch, ok := message.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("Init() message = %T, want previewLoadMsg or tea.BatchMsg", message)
+	}
+	for _, command := range batch {
+		if result, ok := command().(previewLoadMsg); ok {
+			return result
+		}
+	}
+	t.Fatalf("Init() batch contains no previewLoadMsg")
+	return previewLoadMsg{}
 }

@@ -126,10 +126,7 @@ func TestInitStartsAsyncRootLoadAndAppliesResultInUpdate(t *testing.T) {
 		t.Fatalf("Init() filesystem calls = %v, want command-deferred read", got)
 	}
 
-	result, ok := cmd().(browser.LoadResult)
-	if !ok {
-		t.Fatalf("Init() command message = %T, want browser.LoadResult", cmd())
-	}
+	result := loadResultFromInit(t, cmd)
 	if got := fake.calls(); len(got) != 1 || got[0] != model.tree.Root().Path() {
 		t.Fatalf("command filesystem calls = %v, want root read", got)
 	}
@@ -150,8 +147,7 @@ func TestLoadErrorIsRecoverableAndRetryIsAsync(t *testing.T) {
 	fake.setError(root, errors.New("permission denied\x1b\n"))
 	model := NewModel(root, "", fake)
 
-	first := model.Init()
-	result := first().(browser.LoadResult)
+	result := loadResultFromInit(t, model.Init())
 	model.Update(result)
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
 	if model.loading || model.tree.Root().Loaded() || model.tree.Root().Loading() {
@@ -264,7 +260,7 @@ func TestEnterIsNoOpAndStaleResultsAreIgnored(t *testing.T) {
 	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
 	model := NewModel(root, "", fake)
 	cmd := model.Init()
-	result := cmd().(browser.LoadResult)
+	result := loadResultFromInit(t, cmd)
 
 	stale := result
 	stale.Path = filepath.Join(root, "other")
@@ -577,7 +573,7 @@ func TestFooterShowsOperationalStatusUntilReadyAndShortcutsWhenIdle(t *testing.T
 		t.Fatalf("loading footer = %q, want %q", got, loadingStatus)
 	}
 
-	model.Update(load().(browser.LoadResult))
+	model.Update(loadResultFromInit(t, load))
 	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    r reload    q quit" {
 		t.Fatalf("ready footer = %q, want shortcut hints", got)
 	}
@@ -1410,15 +1406,30 @@ func clipboardContent(t *testing.T, cmd tea.Cmd) string {
 
 func completeInitialLoad(t *testing.T, model *Model) {
 	t.Helper()
-	cmd := model.Init()
+	model.Update(loadResultFromInit(t, model.Init()))
+}
+
+func loadResultFromInit(t testing.TB, cmd tea.Cmd) browser.LoadResult {
+	t.Helper()
 	if cmd == nil {
 		t.Fatal("Init() returned nil command")
 	}
-	result, ok := cmd().(browser.LoadResult)
-	if !ok {
-		t.Fatalf("Init() message = %T, want browser.LoadResult", cmd())
+
+	message := cmd()
+	if result, ok := message.(browser.LoadResult); ok {
+		return result
 	}
-	model.Update(result)
+	batch, ok := message.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("Init() message = %T, want browser.LoadResult or tea.BatchMsg", message)
+	}
+	for _, command := range batch {
+		if result, ok := command().(browser.LoadResult); ok {
+			return result
+		}
+	}
+	t.Fatalf("Init() batch contains no browser.LoadResult")
+	return browser.LoadResult{}
 }
 
 type fakeFileSystem struct {
