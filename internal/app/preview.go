@@ -36,9 +36,12 @@ const (
 	previewGutterDividerGlyph   = "│"
 	previewHorizontalTrackGlyph = "─"
 	previewHorizontalThumbGlyph = "━"
+	previewSelectionBackground  = "236"
 )
 
 var previewTruncatedMarker = fmt.Sprintf("… truncated (%d MiB limit)", previewMaxBytes>>20)
+
+var previewSelectionStyle = lipgloss.NewStyle().Background(lipgloss.Color(previewSelectionBackground))
 
 // previewCategory classifies a preview target for the unsupported label.
 type previewCategory string
@@ -79,11 +82,13 @@ var previewCategoryByExtension = map[string]previewCategory{
 
 // previewLine is one rendered line. number is the 1-based original line
 // number; wrapped continuation lines and appended markers carry 0 so their
-// gutter stays blank. muted lines render in the muted foreground.
+// gutter stays blank. origin and col map display lines back to m.lines.
 type previewLine struct {
 	text   string
 	number int
 	muted  bool
+	origin int
+	col    int
 }
 
 // previewLoadMsg is the result of the preview file read command.
@@ -99,9 +104,17 @@ type previewLoadMsg struct {
 // re-discovery hint and its outcome is intentionally not surfaced.
 type previewTagMsg struct{}
 
+type previewDragMode int
+
+const (
+	previewDragNone previewDragMode = iota
+	previewDragVScroll
+	previewDragHScroll
+	previewDragSelect
+)
+
 // PreviewModel is the read-only text preview pane. It mirrors the tree's
-// layout and scrollbar behavior; unlike the tree it holds no selection and
-// renders a line-number gutter.
+// layout and scrollbar behavior and renders a line-number gutter.
 type PreviewModel struct {
 	file   string
 	paneID string
@@ -126,10 +139,10 @@ type PreviewModel struct {
 	width   int
 	height  int
 
-	draggingV   bool
+	dragMode    previewDragMode
 	dragVOffset int
-	draggingH   bool
 	dragHOffset int
+	selection   previewSelection
 }
 
 // NewPreviewModel constructs the preview without reading the file. The
@@ -249,7 +262,7 @@ func (m *PreviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMotionMsg:
 		m.handleMouseMotion(msg)
 	case tea.MouseReleaseMsg:
-		m.handleMouseRelease()
+		m.handleMouseRelease(msg)
 	case tea.MouseWheelMsg:
 		m.handleMouseWheel(msg)
 	case tea.InterruptMsg:
@@ -257,8 +270,8 @@ func (m *PreviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = nonNegative(msg.Width)
 		m.height = nonNegative(msg.Height)
-		m.draggingV = false
-		m.draggingH = false
+		m.dragMode = previewDragNone
+		m.clearSelection()
 		m.rebuildDisplayLines()
 	}
 	return m, nil
@@ -304,10 +317,13 @@ func (m *PreviewModel) applyPreviewLoad(msg previewLoadMsg) {
 	m.loading = false
 	m.displayLines = nil
 	m.maxContentWidth = 0
+	m.dragMode = previewDragNone
+	m.clearSelection()
 	if msg.err != "" {
 		m.lines = nil
 		m.lineCount = 0
 		m.category = ""
+		m.truncated = false
 		m.warning = addWarning(m.warning, msg.err)
 		m.status = m.readyStatus()
 		return
@@ -328,7 +344,7 @@ func (m *PreviewModel) rebuildDisplayLines() {
 	width := m.contentWidth()
 	m.displayLines = buildDisplayLines(m.lines, m.wrap, width)
 	if m.truncated && m.category == previewCategoryText {
-		m.displayLines = append(m.displayLines, previewLine{text: previewTruncatedMarker, muted: true})
+		m.displayLines = append(m.displayLines, previewLine{text: previewTruncatedMarker, muted: true, origin: -1})
 	}
 	m.clampVerticalOffset()
 	m.clampHorizontalOffset()
@@ -394,6 +410,8 @@ func (m *PreviewModel) moveHorizontal(delta int) {
 
 func (m *PreviewModel) toggleWrap() {
 	m.wrap = !m.wrap
+	m.dragMode = previewDragNone
+	m.clearSelection()
 	if m.wrap {
 		m.xoffset = 0
 	}
@@ -457,27 +475,53 @@ func (m *PreviewModel) handleMouseClick(msg tea.MouseClickMsg) {
 		return
 	}
 	if m.isVerticalScrollbarCell(msg.X, msg.Y) {
+		m.dragMode = previewDragNone
 		m.beginVerticalDrag(msg.Y)
 		return
 	}
 	if m.isHorizontalScrollbarCell(msg.X, msg.Y) {
+		m.dragMode = previewDragNone
 		m.beginHorizontalDrag(msg.X)
+		return
 	}
+	if m.category != previewCategoryText || !m.isBodyY(msg.Y) {
+		return
+	}
+	position, ok := m.previewPositionAt(msg.X, msg.Y, false)
+	if !ok {
+		return
+	}
+	m.selection = previewSelection{anchor: position, focus: position}
+	m.dragMode = previewDragSelect
 }
 
 func (m *PreviewModel) handleMouseMotion(msg tea.MouseMotionMsg) {
-	if m.draggingV {
+	switch m.dragMode {
+	case previewDragVScroll:
 		m.dragVerticalTo(msg.Y)
-		return
-	}
-	if m.draggingH {
+	case previewDragHScroll:
 		m.dragHorizontalTo(msg.X)
+	case previewDragSelect:
+		if msg.Button != tea.MouseLeft {
+			return
+		}
+		// TODO: Add automatic viewport scrolling while a selection drag is outside the body.
+		if m.category != previewCategoryText {
+			return
+		}
+		if position, ok := m.previewPositionAt(msg.X, msg.Y, true); ok {
+			m.selection.focus = position
+		}
 	}
 }
 
-func (m *PreviewModel) handleMouseRelease() {
-	m.draggingV = false
-	m.draggingH = false
+func (m *PreviewModel) handleMouseRelease(msg tea.MouseReleaseMsg) {
+	if m.dragMode == previewDragSelect && msg.Button != tea.MouseLeft {
+		return
+	}
+	if m.dragMode != previewDragNone {
+		m.dragMode = previewDragNone
+	}
 }
 
 func (m *PreviewModel) handleMouseWheel(msg tea.MouseWheelMsg) {
@@ -513,14 +557,14 @@ func (m *PreviewModel) beginVerticalDrag(y int) {
 		thumbStart = max
 	}
 	m.offset = metrics.offsetForThumbStart(thumbStart)
-	m.draggingV = true
+	m.dragMode = previewDragVScroll
 	m.dragVOffset = grabOffset
 }
 
 func (m *PreviewModel) dragVerticalTo(y int) {
 	metrics := newScrollbarMetrics(m.bodyHeight(), len(m.displayLines), m.offset)
 	if metrics.maxThumbStart() == 0 {
-		m.draggingV = false
+		m.dragMode = previewDragNone
 		return
 	}
 	localY := y - m.bodyStartY() - m.dragVOffset
@@ -565,14 +609,14 @@ func (m *PreviewModel) beginHorizontalDrag(x int) {
 		thumbStart = max
 	}
 	m.xoffset = metrics.offsetForThumbStart(thumbStart)
-	m.draggingH = true
+	m.dragMode = previewDragHScroll
 	m.dragHOffset = grabOffset
 }
 
 func (m *PreviewModel) dragHorizontalTo(x int) {
 	metrics := m.horizontalMetrics()
 	if metrics.maxThumbStart() == 0 {
-		m.draggingH = false
+		m.dragMode = previewDragNone
 		return
 	}
 	localX := x - m.dragHOffset
@@ -648,19 +692,28 @@ func (m *PreviewModel) renderGutter(line previewLine) string {
 }
 
 func (m *PreviewModel) renderContent(line previewLine, width int) string {
-	text := line.text
-	if !m.wrap && m.xoffset > 0 && text != "" {
-		text = truncateTailToWidth(text, max(0, lipgloss.Width(text)-m.xoffset))
+	viewOffset := 0
+	if !m.wrap {
+		viewOffset = m.xoffset
 	}
-	text = cutHeadToWidth(text, width)
-	if padding := width - lipgloss.Width(text); padding > 0 {
-		text += strings.Repeat(" ", padding)
+	spans := previewVisibleSpans(previewSelectionSpans(line, m.selection), viewOffset, width)
+	var rendered strings.Builder
+	renderedWidth := 0
+	for _, span := range spans {
+		style := lipgloss.NewStyle().Inline(true)
+		if line.muted {
+			style = dividerStyle.Inline(true)
+		}
+		if span.selected {
+			style = style.Inherit(previewSelectionStyle)
+		}
+		rendered.WriteString(style.Render(span.text))
+		renderedWidth += lipgloss.Width(span.text)
 	}
-	style := lipgloss.NewStyle().Inline(true)
-	if line.muted {
-		style = dividerStyle.Inline(true)
+	if padding := width - renderedWidth; padding > 0 {
+		rendered.WriteString(lipgloss.NewStyle().Inline(true).Render(strings.Repeat(" ", padding)))
 	}
-	return style.Render(text)
+	return rendered.String()
 }
 
 func (m *PreviewModel) renderHorizontalScrollbar() string {
@@ -707,6 +760,29 @@ func (m *PreviewModel) contentLeftPadding() int {
 // padding, the gutter, its separator, and the vertical scrollbar column.
 func (m *PreviewModel) contentWidth() int {
 	return max(0, m.width-m.contentLeftPadding()-m.gutterWidth()-2-1)
+}
+
+func (m *PreviewModel) contentStartX() int {
+	return m.contentLeftPadding() + m.gutterWidth() + 2
+}
+
+func (m *PreviewModel) previewPositionAt(x, y int, clampY bool) (previewPosition, bool) {
+	return previewPositionForMouse(
+		m.displayLines,
+		m.offset,
+		m.bodyStartY(),
+		m.bodyHeight(),
+		x,
+		y,
+		m.contentStartX(),
+		m.contentWidth(),
+		m.xoffset,
+		clampY,
+	)
+}
+
+func (m *PreviewModel) clearSelection() {
+	m.selection = previewSelection{}
 }
 
 // gutterWidth is the maximum line-number width with a fixed two-digit
@@ -756,7 +832,7 @@ func previewTextLines(content []byte) []previewLine {
 	lines := make([]previewLine, 0, len(rawLines))
 	for index, raw := range rawLines {
 		expanded := strings.ReplaceAll(raw, "\t", strings.Repeat(" ", previewTabWidth))
-		lines = append(lines, previewLine{text: sanitizeDisplay(expanded), number: index + 1})
+		lines = append(lines, previewLine{text: sanitizeDisplay(expanded), number: index + 1, origin: index})
 	}
 	return lines
 }
@@ -776,17 +852,31 @@ func maxContentWidthFor(lines []previewLine) int {
 // continuation segments lose their line number so the gutter stays blank.
 func buildDisplayLines(lines []previewLine, wrap bool, width int) []previewLine {
 	if !wrap {
-		return lines
+		display := make([]previewLine, 0, len(lines))
+		for index, line := range lines {
+			line.origin = index
+			line.col = 0
+			display = append(display, line)
+		}
+		return display
 	}
 	display := make([]previewLine, 0, len(lines))
-	for _, line := range lines {
+	for origin, line := range lines {
 		segments := wrapToWidth(line.text, width)
+		column := 0
 		for index, segment := range segments {
 			number := 0
 			if index == 0 {
 				number = line.number
 			}
-			display = append(display, previewLine{text: segment, number: number})
+			display = append(display, previewLine{
+				text:   segment,
+				number: number,
+				muted:  line.muted,
+				origin: origin,
+				col:    column,
+			})
+			column += lipgloss.Width(segment)
 		}
 	}
 	return display

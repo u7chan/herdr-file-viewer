@@ -141,11 +141,11 @@ func TestBuildDisplayLinesKeepsHeadNumbersAndBlanksContinuations(t *testing.T) {
 	}
 	display := buildDisplayLines(lines, true, 4)
 	want := []previewLine{
-		{text: "shor", number: 1},
-		{text: "t", number: 0},
-		{text: "abcd", number: 2},
-		{text: "efgh", number: 0},
-		{text: "ij", number: 0},
+		{text: "shor", number: 1, origin: 0, col: 0},
+		{text: "t", number: 0, origin: 0, col: 4},
+		{text: "abcd", number: 2, origin: 1, col: 0},
+		{text: "efgh", number: 0, origin: 1, col: 4},
+		{text: "ij", number: 0, origin: 1, col: 8},
 	}
 	if len(display) != len(want) {
 		t.Fatalf("buildDisplayLines() = %#v, want %#v", display, want)
@@ -656,7 +656,7 @@ func TestPreviewMouseWheelAndScrollbarDrag(t *testing.T) {
 
 	model.offset = 0
 	model.Update(tea.MouseClickMsg{X: model.width - 1, Y: startY + 1, Button: tea.MouseLeft})
-	if !model.draggingV {
+	if model.dragMode != previewDragVScroll {
 		t.Fatal("vertical scrollbar click did not start a drag")
 	}
 	model.Update(tea.MouseMotionMsg{X: model.width - 1, Y: startY + model.bodyHeight(), Button: tea.MouseLeft})
@@ -664,7 +664,7 @@ func TestPreviewMouseWheelAndScrollbarDrag(t *testing.T) {
 		t.Fatalf("vertical drag offset = %d, want %d", model.offset, model.maxVerticalOffset())
 	}
 	model.Update(tea.MouseReleaseMsg{X: model.width - 1, Y: startY + model.bodyHeight(), Button: tea.MouseLeft})
-	if model.draggingV {
+	if model.dragMode != previewDragNone {
 		t.Fatal("vertical release left dragging enabled")
 	}
 }
@@ -683,7 +683,7 @@ func TestPreviewHorizontalScrollbarRendersAndDrags(t *testing.T) {
 	}
 
 	model.Update(tea.MouseClickMsg{X: 1, Y: hbarRow, Button: tea.MouseLeft})
-	if !model.draggingH {
+	if model.dragMode != previewDragHScroll {
 		t.Fatal("horizontal bar click did not start a drag")
 	}
 	model.Update(tea.MouseMotionMsg{X: model.width - 1, Y: hbarRow, Button: tea.MouseLeft})
@@ -691,14 +691,14 @@ func TestPreviewHorizontalScrollbarRendersAndDrags(t *testing.T) {
 		t.Fatalf("horizontal drag xoffset = %d, want %d", model.xoffset, model.maxHorizontalOffset())
 	}
 	model.Update(tea.MouseReleaseMsg{X: model.width - 1, Y: hbarRow, Button: tea.MouseLeft})
-	if model.draggingH {
+	if model.dragMode != previewDragNone {
 		t.Fatal("horizontal release left dragging enabled")
 	}
 
 	// Clicking the bar track while wrap is on must stay inert.
 	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 'w', Text: "w"})
 	model.Update(tea.MouseClickMsg{X: 1, Y: model.horizontalBarY(), Button: tea.MouseLeft})
-	if model.draggingH {
+	if model.dragMode == previewDragHScroll {
 		t.Fatal("wrap mode started a horizontal drag")
 	}
 }

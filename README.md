@@ -15,8 +15,8 @@ lazy directory expansion, cell-aware single-line rendering, recoverable
 directory errors, symlink-as-entry handling, keyboard and mouse scrolling,
 visible scrollbar dragging, left-click selection/toggle, OSC 52 path
 copying, and a text preview pane opened from the tree. It does not provide
-syntax highlighting, markdown rendering, in-app text selection, external
-actions, editing, install/distribution automation, or release tags.
+syntax highlighting, markdown rendering, external actions, editing,
+install/distribution automation, or release tags.
 
 The supported validation target is Linux under WSL2 with Herdr 0.8.2 or newer.
 Native macOS and Windows validation is out of scope. Native Windows host
@@ -150,7 +150,7 @@ number, and wrapped continuation lines leave the gutter blank), tabs expand
 to four spaces, CRLF is normalized, and every line passes the same
 terminal-safe sanitization as the tree. Files larger than 2 MiB are cut at
 the head and end with a `… truncated (2 MiB limit)` marker. There is no
-syntax highlighting, no markdown rendering, and no in-app text selection.
+syntax highlighting or markdown rendering.
 
 Scrolling in the preview:
 
@@ -162,6 +162,14 @@ Scrolling in the preview:
 - `w`: toggle hard wrap (default off). With wrap on, lines break at the pane
   width, continuation rows keep a blank gutter, and the horizontal offset is
   reset. With wrap off, lines scroll horizontally instead of truncating.
+- Left-drag across preview body text selects and highlights it. Selection is
+  visual only and is never sent to the clipboard. Clicking again resets the
+  selection; vertical and horizontal scrolling keep it attached to the text,
+  while `w`, resize, and reload clear it. Gutter clicks anchor at the start of
+  the line, and clicks past a line's end clamp to that end. Unsupported preview
+  labels and the truncation marker are not selectable. Right/middle clicks,
+  keyboard selection, double-click word selection, and drag auto-scroll are
+  not assigned.
 - `Left` / `Right`: horizontal scrolling (only while wrap is off). A
   horizontal scrollbar row appears above the footer with the same track
   click and thumb drag behavior.
