@@ -177,9 +177,11 @@ Scrolling in the preview:
   lines)` across lines, where N is the rune count and M the line count; with
   no selection it shows `No selection` and copies nothing. The toast
   disappears after a few seconds and the help row returns. The highlight
-  stays after copying so `space` can be pressed again to re-copy; wrap
-  toggles and horizontal scrolling do not change the copied text because the
-  selection is kept in original line coordinates. The copied text is what is
+  stays after copying so `space` can be pressed again to re-copy. Toggling
+  `w` still clears the selection as described above, so select the text again
+  before copying; horizontal scrolling keeps it. Because the selection is
+  kept in original line coordinates, the same selected content produces the
+  identical copied text in either wrap mode. The copied text is what is
   displayed (tabs expanded, sanitized).
 - `Left` / `Right`: horizontal scrolling (only while wrap is off). A
   horizontal scrollbar row appears above the footer with the same track
