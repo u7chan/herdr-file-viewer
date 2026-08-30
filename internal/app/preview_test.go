@@ -296,6 +296,113 @@ func TestPreviewModelLoadsTextThroughCommand(t *testing.T) {
 	}
 }
 
+func TestPreviewReloadKeyRefreshesContentAndPreservesViewState(t *testing.T) {
+	shortenPreviewToast(t)
+	reader := &fakePreviewReader{content: bytesRepeatContent(20)}
+	model := NewPreviewModel("/abs/reload.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	model.wrap = true
+	model.rebuildDisplayLines()
+	model.offset = 3
+	model.selection = previewSelection{
+		anchor: previewPosition{line: 0, col: 1},
+		focus:  previewPosition{line: 1, col: 2},
+	}
+	reader.content = []byte("new first\nnew second\nnew third\nnew fourth\nnew fifth")
+
+	_, cmd := model.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	if cmd == nil {
+		t.Fatal("reload returned nil command")
+	}
+	if !model.loading || model.status != previewLoadingStatus {
+		t.Fatalf("reload state = loading %v, status %q; want loading", model.loading, model.status)
+	}
+	message, ok := cmd().(previewLoadMsg)
+	if !ok {
+		t.Fatalf("reload command message = %T, want previewLoadMsg", cmd())
+	}
+	if !message.reload {
+		t.Fatal("reload message is not marked as a manual reload")
+	}
+	_, toastCmd := model.Update(message)
+	if toastCmd == nil {
+		t.Fatal("successful reload returned no toast command")
+	}
+
+	if len(reader.calls) != 2 || reader.calls[1] != "/abs/reload.txt" {
+		t.Fatalf("reader calls = %v, want initial load and reload of the displayed path", reader.calls)
+	}
+	if len(reader.limits) != 2 || reader.limits[1] != previewMaxBytes {
+		t.Fatalf("reader limits = %v, want previewMaxBytes for reload", reader.limits)
+	}
+	if model.loading || model.status != readyStatus {
+		t.Fatalf("after reload: loading %v, status %q; want ready", model.loading, model.status)
+	}
+	if !model.wrap {
+		t.Fatal("reload changed wrap mode")
+	}
+	if model.offset != 1 {
+		t.Fatalf("reload offset = %d, want clamped offset 1", model.offset)
+	}
+	if !model.selection.empty() {
+		t.Fatalf("reload left selection %#v", model.selection)
+	}
+	if len(model.lines) != 5 || model.lines[0].text != "new first" {
+		t.Fatalf("reloaded lines = %#v, want new content", model.lines)
+	}
+	if model.toast != reloadToastText {
+		t.Fatalf("reload toast = %q, want %q", model.toast, reloadToastText)
+	}
+	if got, ok := toastCmd().(previewToastTimeoutMsg); !ok || got.seq != model.toastSeq {
+		t.Fatalf("reload toast command message = %#v, want current preview timeout", toastCmd())
+	}
+}
+
+func TestPreviewReloadRetriesMissingFileAndClearsWarning(t *testing.T) {
+	shortenPreviewToast(t)
+	reader := &fakePreviewReader{err: errors.New("missing")}
+	model := NewPreviewModel("/abs/appears.txt", nil, "", reader)
+	model.Update(previewLoadResult(t, model.Init()))
+	if model.warning == "" {
+		t.Fatal("initial missing file produced no warning")
+	}
+
+	reader.err = nil
+	reader.content = []byte("file appeared")
+	_, cmd := model.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	if cmd == nil {
+		t.Fatal("retry returned nil command")
+	}
+	_, toastCmd := model.Update(cmd())
+	if toastCmd == nil {
+		t.Fatal("successful retry returned no toast command")
+	}
+	if model.warning != "" || model.status != readyStatus {
+		t.Fatalf("after retry: warning %q, status %q; want cleared warning and ready", model.warning, model.status)
+	}
+	if len(model.lines) != 1 || model.lines[0].text != "file appeared" {
+		t.Fatalf("retried lines = %#v, want appeared file", model.lines)
+	}
+	if model.toast != reloadToastText {
+		t.Fatalf("retry toast = %q, want %q", model.toast, reloadToastText)
+	}
+}
+
+func TestPreviewReloadIsNoOpWithoutPreviewFile(t *testing.T) {
+	reader := &fakePreviewReader{content: []byte("ignored")}
+	model := NewPreviewModel("", nil, "", reader)
+	loading, status, warning := model.loading, model.status, model.warning
+	_, cmd := model.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	if cmd != nil {
+		t.Fatalf("reload without preview file returned command %v, want nil", cmd)
+	}
+	if model.loading != loading || model.status != status || model.warning != warning || len(reader.calls) != 0 {
+		t.Fatalf("reload without preview file changed state: loading %v/%v status %q/%q warning %q/%q calls %v", model.loading, loading, model.status, status, model.warning, warning, reader.calls)
+	}
+}
+
 func TestPreviewModelReportsMetadataTokenAtInit(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("x")}
 	client := &stubPreviewClient{}
@@ -349,7 +456,7 @@ func TestPreviewModelShowsUnsupportedLabelForBinaryCategory(t *testing.T) {
 	if strings.Contains(content, "PK") {
 		t.Fatalf("view = %q, must not show binary content", content)
 	}
-	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " w wrap    space copy    q close" {
+	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " w wrap    space copy    r reload    q close" {
 		t.Fatalf("footer = %q, want preview shortcuts", got)
 	}
 }
@@ -593,7 +700,7 @@ func TestPreviewBodyOmitsDividerWithoutGutter(t *testing.T) {
 func TestPreviewRendersTitleFooterAndTruncatedMarker(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("short"), truncated: true}
 	model := NewPreviewModel("/abs/very-long-directory-name/file.txt", nil, "", reader)
-	model.Update(tea.WindowSizeMsg{Width: 32, Height: 6})
+	model.Update(tea.WindowSizeMsg{Width: 50, Height: 6})
 	model.Update(previewLoadResult(t, model.Init()))
 
 	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
@@ -606,7 +713,7 @@ func TestPreviewRendersTitleFooterAndTruncatedMarker(t *testing.T) {
 	if !strings.Contains(lines[markerRow], "truncated (2 MiB limit)") {
 		t.Fatalf("body marker = %q, want truncated marker", lines[markerRow])
 	}
-	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " w wrap    space copy    q close" {
+	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " w wrap    space copy    r reload    q close" {
 		t.Fatalf("footer = %q, want preview shortcuts", got)
 	}
 }
@@ -614,19 +721,19 @@ func TestPreviewRendersTitleFooterAndTruncatedMarker(t *testing.T) {
 func TestPreviewFooterShowsLoadingThenReadyAndWarning(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("x")}
 	model := NewPreviewModel("/abs/s.txt", nil, "", reader)
-	model.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
+	model.Update(tea.WindowSizeMsg{Width: 50, Height: 6})
 
 	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " "+previewLoadingStatus {
 		t.Fatalf("loading footer = %q, want %q", got, " "+previewLoadingStatus)
 	}
 	model.Update(previewLoadResult(t, model.Init()))
-	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " w wrap    space copy    q close" {
+	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " w wrap    space copy    r reload    q close" {
 		t.Fatalf("ready footer = %q, want shortcuts", got)
 	}
 
 	errorReader := &fakePreviewReader{err: errors.New("boom")}
 	errorModel := NewPreviewModel("/abs/missing", nil, "", errorReader)
-	errorModel.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
+	errorModel.Update(tea.WindowSizeMsg{Width: 50, Height: 6})
 	errorModel.Update(previewLoadResult(t, errorModel.Init()))
 	if got := strings.TrimRight(ansi.Strip(strings.Split(errorModel.View().Content, "\n")[5]), " "); !strings.HasPrefix(got, " Warning: boom") {
 		t.Fatalf("warning footer = %q, want Warning prefix", got)
@@ -906,7 +1013,7 @@ func TestPreviewCopyToastTimesOutAndFooterReturnsToHelp(t *testing.T) {
 	shortenPreviewToast(t)
 	reader := &fakePreviewReader{content: []byte("first\nsecond")}
 	model := NewPreviewModel("/abs/copy.txt", nil, "", reader)
-	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(tea.WindowSizeMsg{Width: 50, Height: 8})
 	model.Update(previewLoadResult(t, model.Init()))
 	model.selection = previewSelection{
 		anchor: previewPosition{line: 0, col: 1},
@@ -930,7 +1037,7 @@ func TestPreviewCopyToastTimesOutAndFooterReturnsToHelp(t *testing.T) {
 	if model.toast != "" {
 		t.Fatalf("toast = %q, want cleared after timeout", model.toast)
 	}
-	if got := footer(); got != " w wrap    space copy    q close" {
+	if got := footer(); got != " w wrap    space copy    r reload    q close" {
 		t.Fatalf("footer after timeout = %q, want shortcuts", got)
 	}
 }
@@ -939,14 +1046,14 @@ func TestPreviewFooterToastOutranksStatusAndHelp(t *testing.T) {
 	shortenPreviewToast(t)
 	reader := &fakePreviewReader{content: []byte("first\nsecond")}
 	model := NewPreviewModel("/abs/copy.txt", nil, "", reader)
-	model.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
+	model.Update(tea.WindowSizeMsg{Width: 50, Height: 6})
 	model.Update(previewLoadResult(t, model.Init()))
 
 	footer := func() string {
 		lines := strings.Split(ansi.Strip(model.View().Content), "\n")
 		return strings.TrimRight(lines[len(lines)-1], " ")
 	}
-	if got := footer(); got != " w wrap    space copy    q close" {
+	if got := footer(); got != " w wrap    space copy    r reload    q close" {
 		t.Fatalf("ready footer = %q, want shortcuts", got)
 	}
 
@@ -975,7 +1082,7 @@ func TestPreviewFooterToastOutranksStatusAndHelp(t *testing.T) {
 	}
 
 	model.status = model.readyStatus()
-	if got := footer(); got != " w wrap    space copy    q close" {
+	if got := footer(); got != " w wrap    space copy    r reload    q close" {
 		t.Fatalf("help footer when ready = %q, want shortcuts", got)
 	}
 }
@@ -1065,7 +1172,6 @@ func TestPreviewUnassignedKeysAreInert(t *testing.T) {
 	for _, key := range []tea.KeyPressMsg{
 		{Code: 'a', Text: "a"},
 		{Code: 'z', Text: "z"},
-		{Code: 'r', Text: "r"},
 		{Code: 'y', Text: "y"},
 	} {
 		if _, cmd := model.Update(key); cmd != nil {
