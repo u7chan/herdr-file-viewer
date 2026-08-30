@@ -15,15 +15,14 @@ import (
 	"github.com/u7chan/herdr-file-viewer/internal/filesystem"
 )
 
-var selectedRowBackground = lipgloss.Color("238")
-
 // toastDisplayDuration is a variable so tests can shorten the display time
 // without waiting for the real timer.
 var toastDisplayDuration = 3 * time.Second
 
 var (
 	titleStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Align(lipgloss.Center)
-	selectedStyle       = lipgloss.NewStyle().Background(selectedRowBackground)
+	selectedStyleDark   = lipgloss.NewStyle().Background(lipgloss.Color(selectedRowBackgroundDark))
+	selectedStyleLight  = lipgloss.NewStyle().Background(lipgloss.Color(selectedRowBackgroundLight))
 	toastStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
 	dividerStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	scrollbarTrackStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
@@ -32,24 +31,33 @@ var (
 	helpLabelStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 )
 
+func selectedStyle(lightBackground bool) lipgloss.Style {
+	if lightBackground {
+		return selectedStyleLight
+	}
+	return selectedStyleDark
+}
+
 const (
-	loadingStatus         = "Loading directory..."
-	readyStatus           = "Ready"
-	helpCopyKey           = "space"
-	helpCopyLabel         = "copy"
-	helpReloadKey         = "r"
-	helpReloadLabel       = "reload"
-	helpQuitKey           = "q"
-	helpQuitLabel         = "quit"
-	helpGroupSeparator    = "    "
-	contentLeftPadding    = 1
-	ellipsis              = "…"
-	dividerGlyph          = "─"
-	scrollbarTrackGlyph   = "│"
-	scrollbarThumbGlyph   = "┃"
-	mouseWheelScrollLines = 3
-	stickyRootHeight      = 1
-	reloadToastText       = "Reloaded"
+	selectedRowBackgroundDark  = "238"
+	selectedRowBackgroundLight = "254"
+	loadingStatus              = "Loading directory..."
+	readyStatus                = "Ready"
+	helpCopyKey                = "space"
+	helpCopyLabel              = "copy"
+	helpReloadKey              = "r"
+	helpReloadLabel            = "reload"
+	helpQuitKey                = "q"
+	helpQuitLabel              = "quit"
+	helpGroupSeparator         = "    "
+	contentLeftPadding         = 1
+	ellipsis                   = "…"
+	dividerGlyph               = "─"
+	scrollbarTrackGlyph        = "│"
+	scrollbarThumbGlyph        = "┃"
+	mouseWheelScrollLines      = 3
+	stickyRootHeight           = 1
+	reloadToastText            = "Reloaded"
 )
 
 // Model owns UI state and delegates all filesystem work to commands that read
@@ -65,6 +73,9 @@ type Model struct {
 	offset   int
 	width    int
 	height   int
+
+	// The zero value keeps the existing dark palette until detection succeeds.
+	lightBackground bool
 
 	loading bool
 	status  string
@@ -117,25 +128,29 @@ func NewModelWithPreview(root, warning string, preview PreviewConfig, fileSystem
 	return m
 }
 
-// Init expands the root and returns the first directory read as a command.
+// Init requests the terminal background, expands the root, and returns the
+// first directory read as a command.
 func (m *Model) Init() tea.Cmd {
+	commands := []tea.Cmd{tea.RequestBackgroundColor}
 	if m == nil || m.tree == nil {
-		return nil
+		return tea.Batch(commands...)
 	}
 
 	request, ok := m.tree.Expand(m.tree.Root())
 	m.refreshVisibleRows()
 	if !ok {
-		return nil
+		return tea.Batch(commands...)
 	}
 	m.pending[request.Path] = struct{}{}
 	m.loading = true
 	m.status = loadingStatus
 	if !m.gitStatusRequested && request.Node == m.tree.Root() {
 		m.gitStatusRequested = true
-		return loadInitialDirectory(m.tree, request)
+		commands = append(commands, loadInitialDirectory(m.tree, request))
+		return tea.Batch(commands...)
 	}
-	return loadDirectory(m.tree, request)
+	commands = append(commands, loadDirectory(m.tree, request))
+	return tea.Batch(commands...)
 }
 
 // Update applies messages and is the only place where load results mutate the
@@ -146,6 +161,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		m.lightBackground = !msg.IsDark()
 	case browser.LoadResult:
 		return m, m.applyLoadResult(msg)
 	case toastTimeoutMsg:
@@ -877,9 +894,10 @@ func (m *Model) renderRowWidth(index int, row browser.VisibleRow, width int) str
 // row greys out the icon and name; the trailing letter column is rendered
 // whenever the repository reserves it, even for statusless rows.
 func (m *Model) renderTreeRow(index int, prefix, icon, name string, status browser.GitStatus, ignored bool, width int) string {
+	selectionStyle := selectedStyle(m.lightBackground)
 	rowStyle := lipgloss.NewStyle().Inline(true)
 	if index == m.selected {
-		rowStyle = selectedStyle.Inline(true)
+		rowStyle = selectionStyle.Inline(true)
 	}
 	nameStyle := lipgloss.NewStyle().Inline(true)
 	iconSpan := iconStyle(icon)
@@ -890,8 +908,9 @@ func (m *Model) renderTreeRow(index int, prefix, icon, name string, status brows
 		nameStyle = gitStatusStyle(status)
 	}
 	if index == m.selected {
-		iconSpan = iconSpan.Background(selectedRowBackground)
-		nameStyle = nameStyle.Background(selectedRowBackground)
+		selectionBackground := selectionStyle.GetBackground()
+		iconSpan = iconSpan.Background(selectionBackground)
+		nameStyle = nameStyle.Background(selectionBackground)
 	}
 
 	prefix = truncateToWidth(prefix, width)
@@ -918,7 +937,7 @@ func (m *Model) renderTreeRow(index int, prefix, icon, name string, status brows
 			letterSpan = lipgloss.NewStyle().Inline(true)
 		}
 		if index == m.selected {
-			letterSpan = letterSpan.Background(selectedRowBackground)
+			letterSpan = letterSpan.Background(selectionStyle.GetBackground())
 		}
 		rendered += rowStyle.Render(" ") + letterSpan.Render(letter)
 	}

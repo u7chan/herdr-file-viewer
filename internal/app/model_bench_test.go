@@ -6,7 +6,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/u7chan/herdr-file-viewer/internal/browser"
 	"github.com/u7chan/herdr-file-viewer/internal/filesystem"
 )
 
@@ -44,10 +43,7 @@ func benchmarkViewportModel(b *testing.B) *Model {
 	if load == nil {
 		b.Fatal("fixture Init() returned nil command")
 	}
-	result, ok := load().(browser.LoadResult)
-	if !ok {
-		b.Fatalf("fixture Init() message = %T, want browser.LoadResult", load())
-	}
+	result := loadResultFromInit(b, load)
 	model.Update(result)
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model.selected = len(model.visibleRows) / 2

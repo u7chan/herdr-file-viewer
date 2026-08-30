@@ -26,22 +26,33 @@ const (
 	// previewTabWidth is the fixed cell width used for tab expansion.
 	previewTabWidth = 4
 
-	previewLoadingStatus        = "Loading preview..."
-	previewUntitled             = "Preview"
-	previewHelpWrapKey          = "w"
-	previewHelpWrapLabel        = "wrap"
-	previewHelpCloseKey         = "q"
-	previewHelpCloseLabel       = "close"
-	previewUnsupportedPrefix    = "Unsupported preview: "
-	previewGutterDividerGlyph   = "│"
-	previewHorizontalTrackGlyph = "─"
-	previewHorizontalThumbGlyph = "━"
-	previewSelectionBackground  = "240"
+	previewLoadingStatus            = "Loading preview..."
+	previewUntitled                 = "Preview"
+	previewHelpWrapKey              = "w"
+	previewHelpWrapLabel            = "wrap"
+	previewHelpCloseKey             = "q"
+	previewHelpCloseLabel           = "close"
+	previewUnsupportedPrefix        = "Unsupported preview: "
+	previewGutterDividerGlyph       = "│"
+	previewHorizontalTrackGlyph     = "─"
+	previewHorizontalThumbGlyph     = "━"
+	previewSelectionBackground      = "240"
+	previewSelectionBackgroundLight = "252"
 )
 
 var previewTruncatedMarker = fmt.Sprintf("… truncated (%d MiB limit)", previewMaxBytes>>20)
 
-var previewSelectionStyle = lipgloss.NewStyle().Background(lipgloss.Color(previewSelectionBackground))
+var (
+	previewSelectionStyleDark  = lipgloss.NewStyle().Background(lipgloss.Color(previewSelectionBackground))
+	previewSelectionStyleLight = lipgloss.NewStyle().Background(lipgloss.Color(previewSelectionBackgroundLight))
+)
+
+func previewSelectionStyle(lightBackground bool) lipgloss.Style {
+	if lightBackground {
+		return previewSelectionStyleLight
+	}
+	return previewSelectionStyleDark
+}
 
 // previewCategory classifies a preview target for the unsupported label.
 type previewCategory string
@@ -139,6 +150,9 @@ type PreviewModel struct {
 	width   int
 	height  int
 
+	// The zero value keeps the existing dark palette until detection succeeds.
+	lightBackground bool
+
 	dragMode    previewDragMode
 	dragVOffset int
 	dragHOffset int
@@ -174,15 +188,15 @@ func NewPreviewModel(file string, client PreviewClient, paneID string, readers .
 // Init starts the metadata tag and the file load as commands. Reads and
 // classification happen outside View and Update.
 func (m *PreviewModel) Init() tea.Cmd {
-	commands := make([]tea.Cmd, 0, 2)
+	commands := []tea.Cmd{tea.RequestBackgroundColor}
+	if m == nil {
+		return tea.Batch(commands...)
+	}
 	if m.client != nil && m.paneID != "" && m.file != "" {
 		commands = append(commands, m.tagCommand())
 	}
 	if m.reader != nil && m.file != "" {
 		commands = append(commands, m.loadCommand())
-	}
-	if len(commands) == 0 {
-		return nil
 	}
 	return tea.Batch(commands...)
 }
@@ -222,6 +236,8 @@ func (m *PreviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		m.lightBackground = !msg.IsDark()
 	case previewLoadMsg:
 		m.applyPreviewLoad(msg)
 	case previewTagMsg:
@@ -697,6 +713,7 @@ func (m *PreviewModel) renderContent(line previewLine, width int) string {
 		viewOffset = m.xoffset
 	}
 	spans := previewVisibleSpans(previewSelectionSpans(line, m.selection), viewOffset, width)
+	selectionStyle := previewSelectionStyle(m.lightBackground)
 	var rendered strings.Builder
 	renderedWidth := 0
 	for _, span := range spans {
@@ -705,7 +722,7 @@ func (m *PreviewModel) renderContent(line previewLine, width int) string {
 			style = dividerStyle.Inline(true)
 		}
 		if span.selected {
-			style = style.Inherit(previewSelectionStyle)
+			style = style.Inherit(selectionStyle)
 		}
 		rendered.WriteString(style.Render(span.text))
 		renderedWidth += lipgloss.Width(span.text)

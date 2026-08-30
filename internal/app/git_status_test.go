@@ -31,10 +31,7 @@ func TestInitialLoadReadsGitStatusThroughTheCommandOnce(t *testing.T) {
 	if fake.statusCalls != 0 {
 		t.Fatalf("Init() Git status calls = %d, want command-deferred read", fake.statusCalls)
 	}
-	result, ok := load().(browser.LoadResult)
-	if !ok {
-		t.Fatalf("Init() message = %T, want browser.LoadResult", load())
-	}
+	result := loadResultFromInit(t, load)
 	if fake.statusCalls != 1 {
 		t.Fatalf("initial command Git status calls = %d, want 1", fake.statusCalls)
 	}
@@ -53,7 +50,7 @@ func TestReloadKeyRefreshesGitStatusSnapshot(t *testing.T) {
 		{Path: "file", Status: filesystem.GitStatusModified},
 	}
 	model := NewModel(root, "", fake)
-	model.Update(model.Init()().(browser.LoadResult))
+	model.Update(loadResultFromInit(t, model.Init()))
 	if fake.statusCalls != 1 {
 		t.Fatalf("initial Git status calls = %d, want 1", fake.statusCalls)
 	}
@@ -97,7 +94,7 @@ func TestGitStatusColorsRowsAndAggregatesDirectories(t *testing.T) {
 		{Path: "deleted", Status: filesystem.GitStatusDeleted},
 	}
 	model := NewModel(root, "", fake)
-	model.Update(model.Init()().(browser.LoadResult))
+	model.Update(loadResultFromInit(t, model.Init()))
 	model.Update(teaWindowSize(80, 10))
 
 	view := model.View().Content
@@ -145,7 +142,7 @@ func TestTreeRowsKeepIconPaletteColorSeparateFromGitStatusColor(t *testing.T) {
 		{Path: "main.go", Status: filesystem.GitStatusModified},
 	}
 	model := NewModel(root, "", fake)
-	model.Update(model.Init()().(browser.LoadResult))
+	model.Update(loadResultFromInit(t, model.Init()))
 	model.Update(teaWindowSize(80, 10))
 	view := model.View().Content
 

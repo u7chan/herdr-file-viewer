@@ -174,7 +174,7 @@ func TestPreviewSelectionMouseLifecycleAndViewportClamping(t *testing.T) {
 	reader := &fakePreviewReader{content: bytesRepeatContent(20)}
 	model := NewPreviewModel("/abs/select.txt", nil, "", reader)
 	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
-	model.Update(model.Init()().(previewLoadMsg))
+	model.Update(previewLoadResult(t, model.Init()))
 
 	startY := model.bodyStartY()
 	contentX := model.contentStartX()
@@ -218,7 +218,7 @@ func TestPreviewSelectionClearsOnWrapResizeAndReloadButNotScroll(t *testing.T) {
 	reader := &fakePreviewReader{content: bytesRepeatContent(20)}
 	model := NewPreviewModel("/abs/select.txt", nil, "", reader)
 	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
-	model.Update(model.Init()().(previewLoadMsg))
+	model.Update(previewLoadResult(t, model.Init()))
 	model.selection = previewSelection{anchor: previewPosition{line: 0, col: 1}, focus: previewPosition{line: 1, col: 2}}
 
 	before := model.selection
@@ -251,7 +251,7 @@ func TestPreviewSelectionIgnoresUnsupportedAndTruncatedRows(t *testing.T) {
 	unsupportedReader := &fakePreviewReader{content: []byte("PK\x03\x04")}
 	unsupported := NewPreviewModel("/abs/archive.zip", nil, "", unsupportedReader)
 	unsupported.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
-	unsupported.Update(unsupported.Init()().(previewLoadMsg))
+	unsupported.Update(previewLoadResult(t, unsupported.Init()))
 	unsupported.Update(tea.MouseClickMsg{X: unsupported.contentStartX(), Y: unsupported.bodyStartY(), Button: tea.MouseLeft})
 	if unsupported.dragMode != previewDragNone || !unsupported.selection.empty() {
 		t.Fatalf("unsupported click started selection: mode %d selection %#v", unsupported.dragMode, unsupported.selection)
@@ -260,7 +260,7 @@ func TestPreviewSelectionIgnoresUnsupportedAndTruncatedRows(t *testing.T) {
 	truncatedReader := &fakePreviewReader{content: []byte("text"), truncated: true}
 	truncated := NewPreviewModel("/abs/truncated.txt", nil, "", truncatedReader)
 	truncated.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
-	truncated.Update(truncated.Init()().(previewLoadMsg))
+	truncated.Update(previewLoadResult(t, truncated.Init()))
 	marker := len(truncated.displayLines) - 1
 	truncated.Update(tea.MouseClickMsg{X: truncated.contentStartX(), Y: truncated.bodyStartY() + marker, Button: tea.MouseLeft})
 	if truncated.displayLines[marker].origin != -1 || truncated.dragMode != previewDragNone || !truncated.selection.empty() {
