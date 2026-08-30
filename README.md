@@ -166,18 +166,19 @@ Scrolling in the preview:
   reset. With wrap off, lines scroll horizontally instead of truncating.
 - `r`: reload the displayed path from disk using the same 2 MiB head and text
   pipeline. The scroll position is clamped to the new content, wrap mode is
-  preserved, and any selection is cleared. A successful reload shows a brief
-  `Reloaded` toast; if a reload fails, the last successfully displayed content
-  is kept while a warning is shown. If the initial read failed, `r` retries it.
-  When `HERDR_PREVIEW_FILE` is unset, `r` does nothing.
+  preserved, and any selection is cleared on a successful reload. A successful
+  reload shows a brief `Reloaded` toast; if a reload fails, the last
+  successfully displayed content is kept while a warning is shown. If the
+  initial read failed, `r` retries it. When `HERDR_PREVIEW_FILE` is unset, `r`
+  does nothing.
 - Left-drag across preview body text selects and highlights it. Selection is
   visual only until `space` copies it (below). Clicking again resets the
   selection; vertical and horizontal scrolling keep it attached to the text,
-  while `w`, resize, and reload clear it. Gutter clicks anchor at the start of
-  the line, and clicks past a line's end clamp to that end. Unsupported preview
-  labels and the truncation marker are not selectable. Right/middle clicks,
-  keyboard selection, double-click word selection, and drag auto-scroll are
-  not assigned.
+  while `w`, a resize, and a successful reload clear it. Gutter clicks anchor
+  at the start of the line, and clicks past a line's end clamp to that end.
+  Unsupported preview labels and the truncation marker are not selectable.
+  Right/middle clicks, keyboard selection, double-click word selection, and
+  drag auto-scroll are not assigned.
 - `space`: copy the selected text to the clipboard (OSC 52), with the same
   terminal limitations as the tree's `space` path copy. A brief toast in the
   footer row reports `Copied N chars` (single line) or `Copied N chars (M
