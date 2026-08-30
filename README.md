@@ -137,7 +137,8 @@ stealing the keyboard focus. The preview reads the file path passed through
 `HERDR_PREVIEW_FILE` at startup, re-reads the file from disk (the tree cache
 is not used), and shows a snapshot of its head. The layout mirrors the tree:
 a centered title (absolute path, tail-truncated with `…`), dividers, a body
-with a line-number gutter and a vertical divider, and the footer `w wrap    q close`.
+with a line-number gutter and a vertical divider, and the footer
+`w wrap    y copy    q close`.
 
 Previewability is classified before rendering: known image, video, audio, and
 binary extensions (`png`, `mp4`, `mp3`, `zip`, `exe`, `so`, `pdf`, ...) show
@@ -163,13 +164,22 @@ Scrolling in the preview:
   width, continuation rows keep a blank gutter, and the horizontal offset is
   reset. With wrap off, lines scroll horizontally instead of truncating.
 - Left-drag across preview body text selects and highlights it. Selection is
-  visual only and is never sent to the clipboard. Clicking again resets the
+  visual only until `y` copies it (below). Clicking again resets the
   selection; vertical and horizontal scrolling keep it attached to the text,
   while `w`, resize, and reload clear it. Gutter clicks anchor at the start of
   the line, and clicks past a line's end clamp to that end. Unsupported preview
   labels and the truncation marker are not selectable. Right/middle clicks,
   keyboard selection, double-click word selection, and drag auto-scroll are
   not assigned.
+- `y`: copy the selected text to the clipboard (OSC 52), with the same
+  terminal limitations as the tree's `space` path copy. The footer status
+  reports `Copied N chars` (single line) or `Copied N chars (M lines)` across
+  lines, where N is the rune count and M the line count. With no selection it
+  reports `No selection` and copies nothing. The highlight stays after copying
+  so `y` can be pressed again to re-copy; wrap toggles and horizontal
+  scrolling do not change the copied text because the selection is kept in
+  original line coordinates. The copied text is what is displayed (tabs
+  expanded, sanitized).
 - `Left` / `Right`: horizontal scrolling (only while wrap is off). A
   horizontal scrollbar row appears above the footer with the same track
   click and thumb drag behavior.

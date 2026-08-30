@@ -30,8 +30,11 @@ const (
 	previewUntitled                 = "Preview"
 	previewHelpWrapKey              = "w"
 	previewHelpWrapLabel            = "wrap"
+	previewHelpCopyKey              = "y"
+	previewHelpCopyLabel            = "copy"
 	previewHelpCloseKey             = "q"
 	previewHelpCloseLabel           = "close"
+	previewNoSelectionStatus        = "No selection"
 	previewUnsupportedPrefix        = "Unsupported preview: "
 	previewGutterDividerGlyph       = "│"
 	previewHorizontalTrackGlyph     = "─"
@@ -272,6 +275,8 @@ func (m *PreviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "w":
 			m.toggleWrap()
+		case "y":
+			return m, m.copySelection()
 		}
 	case tea.MouseClickMsg:
 		m.handleMouseClick(msg)
@@ -432,6 +437,33 @@ func (m *PreviewModel) toggleWrap() {
 		m.xoffset = 0
 	}
 	m.rebuildDisplayLines()
+}
+
+// copySelection extracts the selection into a clipboard command. An empty
+// selection only reports the status; the highlight is kept either way so a
+// copy that did happen stays visible and can be re-issued with y.
+func (m *PreviewModel) copySelection() tea.Cmd {
+	text := extractSelection(m.lines, m.selection)
+	if text == "" {
+		m.status = previewNoSelectionStatus
+		return nil
+	}
+	m.status = previewCopyStatus(text, m.selection)
+	return tea.SetClipboard(text)
+}
+
+// previewCopyStatus formats the copy status. N is the rune count of the
+// extracted text; multi-line selections append their line count.
+func previewCopyStatus(text string, selection previewSelection) string {
+	start, end, ok := selection.selectionRange()
+	if !ok {
+		return ""
+	}
+	count := utf8.RuneCountInString(text)
+	if start.line == end.line {
+		return fmt.Sprintf("Copied %d chars", count)
+	}
+	return fmt.Sprintf("Copied %d chars (%d lines)", count, end.line-start.line+1)
 }
 
 // showHorizontalScrollbar reports whether the bottom scrollbar row is
@@ -757,6 +789,7 @@ func (m *PreviewModel) renderFooter() string {
 		return m.renderLine(m.status)
 	}
 	help := renderShortcut(previewHelpWrapKey, previewHelpWrapLabel) + helpGroupSeparator +
+		renderShortcut(previewHelpCopyKey, previewHelpCopyLabel) + helpGroupSeparator +
 		renderShortcut(previewHelpCloseKey, previewHelpCloseLabel)
 	return renderStyledLineAt(strings.Repeat(" ", m.contentLeftPadding())+help, lipgloss.NewStyle(), m.width)
 }
