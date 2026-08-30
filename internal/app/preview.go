@@ -33,6 +33,8 @@ const (
 	previewHelpWrapLabel            = "wrap"
 	previewHelpCopyKey              = "space"
 	previewHelpCopyLabel            = "copy"
+	previewHelpReloadKey            = "r"
+	previewHelpReloadLabel          = "reload"
 	previewHelpCloseKey             = "q"
 	previewHelpCloseLabel           = "close"
 	previewNoSelectionStatus        = "No selection"
@@ -116,7 +118,9 @@ type previewLoadMsg struct {
 	category  previewCategory
 	lines     []previewLine
 	truncated bool
-	err       string
+	// reload distinguishes a manual reload completion from the initial load.
+	reload bool
+	err    string
 }
 
 // previewTagMsg reports a finished metadata report; tagging is a best-effort
@@ -223,11 +227,24 @@ func (m *PreviewModel) tagCommand() tea.Cmd {
 }
 
 func (m *PreviewModel) loadCommand() tea.Cmd {
+	return m.loadCommandFor(false)
+}
+
+func (m *PreviewModel) reloadCommand() tea.Cmd {
+	if m.file == "" || m.reader == nil {
+		return nil
+	}
+	m.loading = true
+	m.status = previewLoadingStatus
+	return m.loadCommandFor(true)
+}
+
+func (m *PreviewModel) loadCommandFor(reload bool) tea.Cmd {
 	reader, path := m.reader, m.file
 	return func() tea.Msg {
 		content, truncated, err := reader.ReadFileHead(path, previewMaxBytes)
 		if err != nil {
-			return previewLoadMsg{file: path, err: sanitizeDisplay(err.Error())}
+			return previewLoadMsg{file: path, reload: reload, err: sanitizeDisplay(err.Error())}
 		}
 		lines := previewTextLines(content)
 		return previewLoadMsg{
@@ -235,6 +252,7 @@ func (m *PreviewModel) loadCommand() tea.Cmd {
 			category:  previewCategoryFor(path, content),
 			lines:     lines,
 			truncated: truncated,
+			reload:    reload,
 		}
 	}
 }
@@ -250,7 +268,7 @@ func (m *PreviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BackgroundColorMsg:
 		m.lightBackground = !msg.IsDark()
 	case previewLoadMsg:
-		m.applyPreviewLoad(msg)
+		return m, m.applyPreviewLoad(msg)
 	case previewToastTimeoutMsg:
 		if msg.seq == m.toastSeq {
 			m.toast = ""
@@ -261,6 +279,8 @@ func (m *PreviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "r":
+			return m, m.reloadCommand()
 		case "up", "k":
 			m.moveVertical(-1)
 		case "down", "j":
@@ -346,21 +366,27 @@ func (m *PreviewModel) View() tea.View {
 	return view
 }
 
-func (m *PreviewModel) applyPreviewLoad(msg previewLoadMsg) {
+func (m *PreviewModel) applyPreviewLoad(msg previewLoadMsg) tea.Cmd {
 	m.loading = false
+	if msg.err != "" {
+		if m.lines == nil {
+			m.displayLines = nil
+			m.maxContentWidth = 0
+			m.dragMode = previewDragNone
+			m.clearSelection()
+			m.lineCount = 0
+			m.category = ""
+			m.truncated = false
+		}
+		m.warning = addWarning(m.warning, msg.err)
+		m.status = m.readyStatus()
+		return nil
+	}
 	m.displayLines = nil
 	m.maxContentWidth = 0
 	m.dragMode = previewDragNone
 	m.clearSelection()
-	if msg.err != "" {
-		m.lines = nil
-		m.lineCount = 0
-		m.category = ""
-		m.truncated = false
-		m.warning = addWarning(m.warning, msg.err)
-		m.status = m.readyStatus()
-		return
-	}
+	m.warning = ""
 	m.file = msg.file
 	m.category = msg.category
 	m.truncated = msg.truncated
@@ -369,6 +395,10 @@ func (m *PreviewModel) applyPreviewLoad(msg previewLoadMsg) {
 	m.maxContentWidth = maxContentWidthFor(msg.lines)
 	m.rebuildDisplayLines()
 	m.status = m.readyStatus()
+	if msg.reload {
+		return m.showToast(reloadToastText)
+	}
+	return nil
 }
 
 // rebuildDisplayLines recomputes the wrapped view after a load, a wrap
@@ -825,6 +855,7 @@ func (m *PreviewModel) renderFooter() string {
 	}
 	help := renderShortcut(previewHelpWrapKey, previewHelpWrapLabel) + helpGroupSeparator +
 		renderShortcut(previewHelpCopyKey, previewHelpCopyLabel) + helpGroupSeparator +
+		renderShortcut(previewHelpReloadKey, previewHelpReloadLabel) + helpGroupSeparator +
 		renderShortcut(previewHelpCloseKey, previewHelpCloseLabel)
 	return renderStyledLineAt(strings.Repeat(" ", m.contentLeftPadding())+help, lipgloss.NewStyle(), m.width)
 }
