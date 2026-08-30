@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
@@ -44,6 +45,10 @@ const (
 )
 
 var previewTruncatedMarker = fmt.Sprintf("… truncated (%d MiB limit)", previewMaxBytes>>20)
+
+// previewToastDuration is a variable so tests can shorten the display time
+// without waiting for the real timer.
+var previewToastDuration = 3 * time.Second
 
 var (
 	previewSelectionStyleDark  = lipgloss.NewStyle().Background(lipgloss.Color(previewSelectionBackground))
@@ -160,6 +165,9 @@ type PreviewModel struct {
 	dragVOffset int
 	dragHOffset int
 	selection   previewSelection
+
+	toast    string
+	toastSeq int
 }
 
 // NewPreviewModel constructs the preview without reading the file. The
@@ -243,6 +251,10 @@ func (m *PreviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lightBackground = !msg.IsDark()
 	case previewLoadMsg:
 		m.applyPreviewLoad(msg)
+	case previewToastTimeoutMsg:
+		if msg.seq == m.toastSeq {
+			m.toast = ""
+		}
 	case previewTagMsg:
 		// Tagging has no UI effect.
 	case tea.KeyPressMsg:
@@ -439,17 +451,37 @@ func (m *PreviewModel) toggleWrap() {
 	m.rebuildDisplayLines()
 }
 
+// previewToastTimeoutMsg hides the preview footer toast after its display
+// time. It is a separate type from the tree's toastTimeoutMsg so each model
+// only consumes its own timers.
+type previewToastTimeoutMsg struct {
+	seq int
+}
+
+// showToast shows text in the footer for a fixed display time. Each show
+// invalidates the previous timer, so rapid copies keep the toast visible
+// for their own full duration.
+func (m *PreviewModel) showToast(text string) tea.Cmd {
+	m.toast = text
+	m.toastSeq++
+	seq := m.toastSeq
+	return tea.Tick(previewToastDuration, func(time.Time) tea.Msg {
+		return previewToastTimeoutMsg{seq: seq}
+	})
+}
+
 // copySelection extracts the selection into a clipboard command. An empty
-// selection only reports the status; the highlight is kept either way so a
-// copy that did happen stays visible and can be re-issued with space.
+// selection only shows a toast; the highlight is kept either way so a copy
+// that did happen stays visible and can be re-issued with space.
 func (m *PreviewModel) copySelection() tea.Cmd {
 	text := extractSelection(m.lines, m.selection)
 	if text == "" {
-		m.status = previewNoSelectionStatus
-		return nil
+		return m.showToast(previewNoSelectionStatus)
 	}
-	m.status = previewCopyStatus(text, m.selection)
-	return tea.SetClipboard(text)
+	return tea.Batch(
+		m.showToast(previewCopyStatus(text, m.selection)),
+		tea.SetClipboard(text),
+	)
 }
 
 // previewCopyStatus formats the copy status. N is the rune count of the
@@ -782,6 +814,9 @@ func (m *PreviewModel) renderHorizontalScrollbar() string {
 }
 
 func (m *PreviewModel) renderFooter() string {
+	if m.toast != "" {
+		return renderStyledLineAt(strings.Repeat(" ", m.contentLeftPadding())+m.toast, toastStyle, m.width)
+	}
 	if m.warning != "" {
 		return m.renderLine(m.readyStatus())
 	}

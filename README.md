@@ -172,14 +172,15 @@ Scrolling in the preview:
   keyboard selection, double-click word selection, and drag auto-scroll are
   not assigned.
 - `space`: copy the selected text to the clipboard (OSC 52), with the same
-  terminal limitations as the tree's `space` path copy. The footer status
-  reports `Copied N chars` (single line) or `Copied N chars (M lines)` across
-  lines, where N is the rune count and M the line count. With no selection it
-  reports `No selection` and copies nothing. The highlight stays after copying
-  so `space` can be pressed again to re-copy; wrap toggles and horizontal
-  scrolling do not change the copied text because the selection is kept in
-  original line coordinates. The copied text is what is displayed (tabs
-  expanded, sanitized).
+  terminal limitations as the tree's `space` path copy. A brief toast in the
+  footer row reports `Copied N chars` (single line) or `Copied N chars (M
+  lines)` across lines, where N is the rune count and M the line count; with
+  no selection it shows `No selection` and copies nothing. The toast
+  disappears after a few seconds and the help row returns. The highlight
+  stays after copying so `space` can be pressed again to re-copy; wrap
+  toggles and horizontal scrolling do not change the copied text because the
+  selection is kept in original line coordinates. The copied text is what is
+  displayed (tabs expanded, sanitized).
 - `Left` / `Right`: horizontal scrolling (only while wrap is off). A
   horizontal scrollbar row appears above the footer with the same track
   click and thumb drag behavior.
