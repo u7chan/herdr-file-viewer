@@ -30,7 +30,7 @@ const (
 	previewUntitled                 = "Preview"
 	previewHelpWrapKey              = "w"
 	previewHelpWrapLabel            = "wrap"
-	previewHelpCopyKey              = "y"
+	previewHelpCopyKey              = "space"
 	previewHelpCopyLabel            = "copy"
 	previewHelpCloseKey             = "q"
 	previewHelpCloseLabel           = "close"
@@ -275,7 +275,7 @@ func (m *PreviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "w":
 			m.toggleWrap()
-		case "y":
+		case "space", "\u3000":
 			return m, m.copySelection()
 		}
 	case tea.MouseClickMsg:
@@ -441,7 +441,7 @@ func (m *PreviewModel) toggleWrap() {
 
 // copySelection extracts the selection into a clipboard command. An empty
 // selection only reports the status; the highlight is kept either way so a
-// copy that did happen stays visible and can be re-issued with y.
+// copy that did happen stays visible and can be re-issued with space.
 func (m *PreviewModel) copySelection() tea.Cmd {
 	text := extractSelection(m.lines, m.selection)
 	if text == "" {
