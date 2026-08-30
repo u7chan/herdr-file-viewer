@@ -152,7 +152,7 @@ func previewVisibleSpans(spans []previewTextSpan, offset, width int) []previewTe
 			continue
 		}
 		localStart := max(0, offset-cellOffset)
-		localEnd := minInt(end-cellOffset, spanWidth)
+		localEnd := min(end-cellOffset, spanWidth)
 		if clipped, ok := previewVisibleSpan(span, localStart, localEnd); ok {
 			visible = append(visible, clipped)
 		}
@@ -349,11 +349,4 @@ func previewVisibleSpan(span previewTextSpan, start, end int) (previewTextSpan, 
 		text:     span.text[firstByte:lastByte],
 		selected: span.selected,
 	}, true
-}
-
-func minInt(left, right int) int {
-	if left < right {
-		return left
-	}
-	return right
 }
