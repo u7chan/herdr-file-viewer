@@ -93,15 +93,38 @@ func previewSelectionSpans(line previewLine, selection previewSelection) []previ
 		return spans
 	}
 
-	spans = spans[:0]
-	for _, grapheme := range previewGraphemePieces(line.text) {
-		absoluteStart := lineStart + grapheme.start
-		absoluteEnd := lineStart + grapheme.end
-		selected := absoluteStart >= selectedStart && absoluteEnd <= selectedEnd
-		appendPreviewTextSpan(&spans, grapheme.text, selected)
+	firstSelectedByte, lastSelectedByte := -1, -1
+	cellOffset := 0
+	byteOffset := 0
+	iter := graphemes.FromString(line.text)
+	for iter.Next() {
+		text := iter.Value()
+		width := lipgloss.Width(text)
+		absoluteStart := lineStart + cellOffset
+		absoluteEnd := absoluteStart + width
+		if absoluteStart >= selectedStart && absoluteEnd <= selectedEnd {
+			if firstSelectedByte < 0 {
+				firstSelectedByte = byteOffset
+			}
+			lastSelectedByte = byteOffset + len(text)
+		}
+		cellOffset += width
+		byteOffset += len(text)
 	}
-	if len(spans) == 0 {
-		return []previewTextSpan{{text: line.text}}
+	if firstSelectedByte < 0 {
+		return spans
+	}
+
+	spans = make([]previewTextSpan, 0, 3)
+	if firstSelectedByte > 0 {
+		spans = append(spans, previewTextSpan{text: line.text[:firstSelectedByte]})
+	}
+	spans = append(spans, previewTextSpan{
+		text:     line.text[firstSelectedByte:lastSelectedByte],
+		selected: true,
+	})
+	if lastSelectedByte < len(line.text) {
+		spans = append(spans, previewTextSpan{text: line.text[lastSelectedByte:]})
 	}
 	return spans
 }
@@ -120,14 +143,20 @@ func previewVisibleSpans(spans []previewTextSpan, offset, width int) []previewTe
 	visible := make([]previewTextSpan, 0, len(spans))
 	cellOffset := 0
 	for _, span := range spans {
-		for _, grapheme := range previewGraphemePieces(span.text) {
-			start := cellOffset + grapheme.start
-			finish := cellOffset + grapheme.end
-			if start >= offset && finish <= end {
-				appendPreviewTextSpan(&visible, grapheme.text, span.selected)
-			}
+		if cellOffset >= end {
+			break
 		}
-		cellOffset += lipgloss.Width(span.text)
+		spanWidth := lipgloss.Width(span.text)
+		if cellOffset+spanWidth <= offset {
+			cellOffset += spanWidth
+			continue
+		}
+		localStart := max(0, offset-cellOffset)
+		localEnd := minInt(end-cellOffset, spanWidth)
+		if clipped, ok := previewVisibleSpan(span, localStart, localEnd); ok {
+			visible = append(visible, clipped)
+		}
+		cellOffset += spanWidth
 	}
 	return visible
 }
@@ -259,17 +288,6 @@ func previewGraphemePieces(value string) []previewGrapheme {
 	return pieces
 }
 
-func appendPreviewTextSpan(spans *[]previewTextSpan, text string, selected bool) {
-	if text == "" {
-		return
-	}
-	if len(*spans) > 0 && (*spans)[len(*spans)-1].selected == selected {
-		(*spans)[len(*spans)-1].text += text
-		return
-	}
-	*spans = append(*spans, previewTextSpan{text: text, selected: selected})
-}
-
 func previewSliceByCells(value string, start, end int) string {
 	if end <= start {
 		return ""
@@ -292,4 +310,50 @@ func previewSliceByCells(value string, start, end int) string {
 		}
 	}
 	return result.String()
+}
+
+func previewVisibleSpan(span previewTextSpan, start, end int) (previewTextSpan, bool) {
+	if end <= start {
+		return previewTextSpan{}, false
+	}
+
+	firstByte, lastByte := -1, -1
+	cellOffset := 0
+	byteOffset := 0
+	iter := graphemes.FromString(span.text)
+	for iter.Next() {
+		text := iter.Value()
+		width := lipgloss.Width(text)
+		if cellOffset >= end {
+			break
+		}
+		finish := cellOffset + width
+		if finish <= start {
+			cellOffset = finish
+			byteOffset += len(text)
+			continue
+		}
+		if cellOffset >= start && finish <= end {
+			if firstByte < 0 {
+				firstByte = byteOffset
+			}
+			lastByte = byteOffset + len(text)
+		}
+		cellOffset = finish
+		byteOffset += len(text)
+	}
+	if firstByte < 0 {
+		return previewTextSpan{}, false
+	}
+	return previewTextSpan{
+		text:     span.text[firstByte:lastByte],
+		selected: span.selected,
+	}, true
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
 }
