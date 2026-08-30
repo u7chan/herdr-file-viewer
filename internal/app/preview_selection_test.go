@@ -274,8 +274,8 @@ func TestPreviewSelectionRenderingUsesDistinctBackground(t *testing.T) {
 		focus:  previewPosition{line: 0, col: 3},
 	}}
 	rendered := model.renderContent(previewLine{text: "abcd", origin: 0}, 4)
-	if !strings.Contains(rendered, "48;5;236") {
-		t.Fatalf("rendered selection = %q, want background color 236", rendered)
+	if !strings.Contains(rendered, "48;5;240") {
+		t.Fatalf("rendered selection = %q, want background color 240", rendered)
 	}
 	if got := ansi.Strip(rendered); got != "abcd" {
 		t.Fatalf("rendered selection stripped = %q, want original text", got)

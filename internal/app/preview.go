@@ -36,7 +36,7 @@ const (
 	previewGutterDividerGlyph   = "│"
 	previewHorizontalTrackGlyph = "─"
 	previewHorizontalThumbGlyph = "━"
-	previewSelectionBackground  = "236"
+	previewSelectionBackground  = "240"
 )
 
 var previewTruncatedMarker = fmt.Sprintf("… truncated (%d MiB limit)", previewMaxBytes>>20)
