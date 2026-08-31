@@ -61,6 +61,47 @@ func TestHighlightPreviewLinesFallsBackToPlainText(t *testing.T) {
 	}
 }
 
+func TestPreviewTokensForLexerFailuresPreservePlainText(t *testing.T) {
+	plain := previewTextLines([]byte("package main\nfunc main() {}"))
+	source := previewSourceForLines(plain)
+	for _, test := range []struct {
+		name  string
+		lexer *stubPreviewLexer
+	}{
+		{
+			name: "tokenize error",
+			lexer: &stubPreviewLexer{tokenize: func(*chroma.TokeniseOptions, string) (chroma.Iterator, error) {
+				return nil, errors.New("tokenize failed")
+			}},
+		},
+		{
+			name: "token reconstruction mismatch",
+			lexer: &stubPreviewLexer{tokenize: func(*chroma.TokeniseOptions, string) (chroma.Iterator, error) {
+				return chroma.Literator(chroma.Token{Type: chroma.Text, Value: "different"}), nil
+			}},
+		},
+		{
+			name: "token iterator panic",
+			lexer: &stubPreviewLexer{tokenize: func(*chroma.TokeniseOptions, string) (chroma.Iterator, error) {
+				return func() chroma.Token { panic("tokenize iterator failed") }, nil
+			}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tokens, ok := previewTokensForLexer(test.lexer, source)
+			if ok || tokens != nil {
+				t.Fatalf("previewTokensForLexer() = (%#v, %t), want (nil, false)", tokens, ok)
+			}
+			if got := previewSourceForLines(plain); got != source {
+				t.Fatalf("plain source = %q, want %q", got, source)
+			}
+			if got := plain[0].spans; got != nil {
+				t.Fatalf("plain spans = %#v, want nil", got)
+			}
+		})
+	}
+}
+
 func TestPreviewSyntaxStyleUsesThemeForegroundWithoutBackground(t *testing.T) {
 	for _, test := range []struct {
 		name  string
@@ -190,4 +231,28 @@ func clonePreviewLines(lines []previewLine) []previewLine {
 		cloned[index].spans = append([]previewSyntaxSpan(nil), line.spans...)
 	}
 	return cloned
+}
+
+type stubPreviewLexer struct {
+	tokenize func(*chroma.TokeniseOptions, string) (chroma.Iterator, error)
+}
+
+func (l *stubPreviewLexer) Config() *chroma.Config {
+	return &chroma.Config{Name: "stub"}
+}
+
+func (l *stubPreviewLexer) Tokenise(options *chroma.TokeniseOptions, text string) (chroma.Iterator, error) {
+	return l.tokenize(options, text)
+}
+
+func (l *stubPreviewLexer) SetRegistry(*chroma.LexerRegistry) chroma.Lexer {
+	return l
+}
+
+func (l *stubPreviewLexer) SetAnalyser(func(string) float32) chroma.Lexer {
+	return l
+}
+
+func (*stubPreviewLexer) AnalyseText(string) float32 {
+	return 0
 }
