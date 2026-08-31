@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/alecthomas/chroma/v2"
 	"github.com/clipperhouse/uax29/v2/graphemes"
 )
 
@@ -54,25 +55,90 @@ func (s previewSelection) selectionRange() (previewPosition, previewPosition, bo
 // The text is never split in the middle of a grapheme.
 type previewTextSpan struct {
 	text     string
+	token    chroma.TokenType
 	selected bool
 }
 
-// previewSelectionSpans splits one display line into at most three spans.
-// Selection ranges are evaluated in original-line coordinates, so all wrap
-// continuations of one line share the same selection interval.
+// previewSelectionSpans splits one display line at syntax, selection, and
+// grapheme boundaries. Selection ranges are evaluated in original-line
+// coordinates, so all wrap continuations of one line share the same interval.
 func previewSelectionSpans(line previewLine, selection previewSelection) []previewTextSpan {
-	spans := []previewTextSpan{{text: line.text}}
-	if line.origin < 0 || selection.empty() {
-		return spans
-	}
-
-	start, end, ok := selection.selectionRange()
-	if !ok || line.origin < start.line || line.origin > end.line {
-		return spans
-	}
-
 	lineStart := line.col
 	lineEnd := lineStart + lipgloss.Width(line.text)
+	if line.origin < 0 || lineEnd <= lineStart {
+		return []previewTextSpan{{text: line.text}}
+	}
+
+	selectedStart, selectedEnd, hasSelection := previewSelectedRangeForLine(line, selection, lineStart, lineEnd)
+	result := make([]previewTextSpan, 0, len(line.spans)+3)
+	var current strings.Builder
+	var pendingZeroWidth strings.Builder
+	var currentToken chroma.TokenType
+	var currentSelected bool
+	hasCurrent := false
+	flush := func() {
+		if !hasCurrent {
+			return
+		}
+		result = append(result, previewTextSpan{
+			text:     current.String(),
+			token:    currentToken,
+			selected: currentSelected,
+		})
+		current = strings.Builder{}
+		hasCurrent = false
+	}
+	iter := graphemes.FromString(line.text)
+	cellOffset := 0
+	for iter.Next() {
+		piece := iter.Value()
+		width := lipgloss.Width(piece)
+		absoluteStart := lineStart + cellOffset
+		absoluteEnd := absoluteStart + width
+		if absoluteEnd <= absoluteStart {
+			if hasCurrent {
+				current.WriteString(piece)
+			} else {
+				pendingZeroWidth.WriteString(piece)
+			}
+			cellOffset += width
+			continue
+		}
+		selected := hasSelection && absoluteStart >= selectedStart && absoluteEnd <= selectedEnd
+		token := previewSyntaxTokenForRange(line.spans, absoluteStart, absoluteEnd)
+		if !hasCurrent {
+			current.WriteString(pendingZeroWidth.String())
+			pendingZeroWidth = strings.Builder{}
+			currentToken = token
+			currentSelected = selected
+			hasCurrent = true
+		} else if currentToken != token || currentSelected != selected {
+			flush()
+			currentToken = token
+			currentSelected = selected
+			hasCurrent = true
+		}
+		current.WriteString(piece)
+		cellOffset += width
+	}
+	if hasCurrent {
+		current.WriteString(pendingZeroWidth.String())
+		flush()
+	} else if pendingZeroWidth.Len() > 0 {
+		return []previewTextSpan{{text: pendingZeroWidth.String()}}
+	}
+	if len(result) == 0 {
+		return []previewTextSpan{{text: line.text}}
+	}
+	return result
+}
+
+func previewSelectedRangeForLine(line previewLine, selection previewSelection, lineStart, lineEnd int) (int, int, bool) {
+	start, end, ok := selection.selectionRange()
+	if !ok || line.origin < start.line || line.origin > end.line {
+		return 0, 0, false
+	}
+
 	selectedStart, selectedEnd := lineStart, lineEnd
 	if start.line == end.line {
 		selectedStart = start.col
@@ -82,51 +148,18 @@ func previewSelectionSpans(line previewLine, selection previewSelection) []previ
 	} else if line.origin == end.line {
 		selectedEnd = end.col
 	}
+	selectedStart = max(selectedStart, lineStart)
+	selectedEnd = min(selectedEnd, lineEnd)
+	return selectedStart, selectedEnd, selectedStart < selectedEnd
+}
 
-	if selectedStart < lineStart {
-		selectedStart = lineStart
-	}
-	if selectedEnd > lineEnd {
-		selectedEnd = lineEnd
-	}
-	if selectedStart >= selectedEnd {
-		return spans
-	}
-
-	firstSelectedByte, lastSelectedByte := -1, -1
-	cellOffset := 0
-	byteOffset := 0
-	iter := graphemes.FromString(line.text)
-	for iter.Next() {
-		text := iter.Value()
-		width := lipgloss.Width(text)
-		absoluteStart := lineStart + cellOffset
-		absoluteEnd := absoluteStart + width
-		if absoluteStart >= selectedStart && absoluteEnd <= selectedEnd {
-			if firstSelectedByte < 0 {
-				firstSelectedByte = byteOffset
-			}
-			lastSelectedByte = byteOffset + len(text)
+func previewSyntaxTokenForRange(spans []previewSyntaxSpan, start, end int) chroma.TokenType {
+	for _, span := range spans {
+		if span.start < end && span.end > start {
+			return span.token
 		}
-		cellOffset += width
-		byteOffset += len(text)
 	}
-	if firstSelectedByte < 0 {
-		return spans
-	}
-
-	spans = make([]previewTextSpan, 0, 3)
-	if firstSelectedByte > 0 {
-		spans = append(spans, previewTextSpan{text: line.text[:firstSelectedByte]})
-	}
-	spans = append(spans, previewTextSpan{
-		text:     line.text[firstSelectedByte:lastSelectedByte],
-		selected: true,
-	})
-	if lastSelectedByte < len(line.text) {
-		spans = append(spans, previewTextSpan{text: line.text[lastSelectedByte:]})
-	}
-	return spans
+	return chroma.EOFType
 }
 
 // previewVisibleSpans applies horizontal scrolling and the content width to
@@ -347,6 +380,7 @@ func previewVisibleSpan(span previewTextSpan, start, end int) (previewTextSpan, 
 	}
 	return previewTextSpan{
 		text:     span.text[firstByte:lastByte],
+		token:    span.token,
 		selected: span.selected,
 	}, true
 }

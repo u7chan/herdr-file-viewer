@@ -149,6 +149,22 @@ func TestPreviewSelectionSpansDoNotSplitWideGraphemes(t *testing.T) {
 	}
 }
 
+func TestPreviewSelectionSpansRetainZeroWidthGraphemes(t *testing.T) {
+	line := previewLine{text: "\u0301a", origin: 0}
+	spans := previewSelectionSpans(line, previewSelection{})
+	if got := strings.Join(previewSpanTexts(spans), ""); got != line.text {
+		t.Fatalf("zero-width grapheme spans = %#v, text %q; want %q", spans, got, line.text)
+	}
+}
+
+func previewSpanTexts(spans []previewTextSpan) []string {
+	texts := make([]string, 0, len(spans))
+	for _, span := range spans {
+		texts = append(texts, span.text)
+	}
+	return texts
+}
+
 func TestExtractSelectionJoinsOriginalLines(t *testing.T) {
 	lines := []previewLine{{text: "first"}, {text: "second"}, {text: "third"}}
 	selection := previewSelection{

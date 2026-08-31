@@ -14,9 +14,11 @@ This is the minimum, read-only viewer used inside a Herdr pane. It supports
 lazy directory expansion, cell-aware single-line rendering, recoverable
 directory errors, symlink-as-entry handling, keyboard and mouse scrolling,
 visible scrollbar dragging, left-click selection/toggle, OSC 52 path
-copying, and a text preview pane opened from the tree. It does not provide
-syntax highlighting, markdown rendering, external actions, editing,
-install/distribution automation, or release tags.
+copying, and a text preview pane opened from the tree. Recognized source,
+configuration, and markup filenames receive syntax highlighting, while files
+without a matching lexer remain plain text. It does not provide markdown
+rendering, external actions, editing, install/distribution automation, or
+release tags.
 
 The supported validation target is Linux under WSL2 with Herdr 0.8.2 or newer.
 Native macOS and Windows validation is out of scope. Native Windows host
@@ -150,9 +152,11 @@ text: `svg`, `json`, markdown, and plain files all count. Text is displayed
 with right-aligned line numbers (the gutter width follows the largest line
 number, and wrapped continuation lines leave the gutter blank), tabs expand
 to four spaces, CRLF is normalized, and every line passes the same
-terminal-safe sanitization as the tree. Files larger than 2 MiB are cut at
-the head and end with a `… truncated (2 MiB limit)` marker. There is no
-syntax highlighting or markdown rendering.
+terminal-safe sanitization as the tree. Files whose base name matches a Chroma
+lexer are syntax-highlighted with the fixed `github-dark` / `github` themes;
+files without a matching lexer fall back to plain text. Files larger than 2 MiB
+are cut at the head and end with a `… truncated (2 MiB limit)` marker.
+Markdown is treated as source and highlighted, not rendered.
 
 Scrolling in the preview:
 

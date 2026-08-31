@@ -153,7 +153,7 @@ func TestBuildDisplayLinesKeepsHeadNumbersAndBlanksContinuations(t *testing.T) {
 		t.Fatalf("buildDisplayLines() = %#v, want %#v", display, want)
 	}
 	for index := range want {
-		if display[index] != want[index] {
+		if !reflect.DeepEqual(display[index], want[index]) {
 			t.Errorf("display line %d = %#v, want %#v", index, display[index], want[index])
 		}
 	}
