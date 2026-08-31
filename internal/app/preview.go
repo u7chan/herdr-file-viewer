@@ -103,13 +103,15 @@ var previewCategoryByExtension = map[string]previewCategory{
 
 // previewLine is one rendered line. number is the 1-based original line
 // number; wrapped continuation lines and appended markers carry 0 so their
-// gutter stays blank. origin and col map display lines back to m.lines.
+// gutter stays blank. origin and col map display lines back to m.lines, while
+// spans keep syntax ranges in original-line cell coordinates.
 type previewLine struct {
 	text   string
 	number int
 	muted  bool
 	origin int
 	col    int
+	spans  []previewSyntaxSpan
 }
 
 // previewLoadMsg is the result of the preview file read command.
@@ -246,10 +248,14 @@ func (m *PreviewModel) loadCommandFor(reload bool) tea.Cmd {
 		if err != nil {
 			return previewLoadMsg{file: path, reload: reload, err: sanitizeDisplay(err.Error())}
 		}
+		category := previewCategoryFor(path, content)
 		lines := previewTextLines(content)
+		if category == previewCategoryText {
+			lines = highlightPreviewLines(path, lines)
+		}
 		return previewLoadMsg{
 			file:      path,
-			category:  previewCategoryFor(path, content),
+			category:  category,
 			lines:     lines,
 			truncated: truncated,
 			reload:    reload,
@@ -811,7 +817,7 @@ func (m *PreviewModel) renderContent(line previewLine, width int) string {
 	var rendered strings.Builder
 	renderedWidth := 0
 	for _, span := range spans {
-		style := lipgloss.NewStyle().Inline(true)
+		style := previewSyntaxStyle(span.token, m.lightBackground)
 		if line.muted {
 			style = dividerStyle.Inline(true)
 		}
@@ -991,6 +997,7 @@ func buildDisplayLines(lines []previewLine, wrap bool, width int) []previewLine 
 				muted:  line.muted,
 				origin: origin,
 				col:    column,
+				spans:  line.spans,
 			})
 			column += lipgloss.Width(segment)
 		}
