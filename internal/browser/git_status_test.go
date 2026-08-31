@@ -58,6 +58,79 @@ func TestTreeMapsGitStatusesToLoadedAndUnloadedPaths(t *testing.T) {
 	}
 }
 
+func TestTreeRefreshesGitStatusForEntriesFoundByLazyRead(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status filesystem.GitStatus
+		want   GitStatus
+	}{
+		{name: "staged", status: filesystem.GitStatusAdded, want: GitStatusAdded},
+		{name: "unstaged", status: filesystem.GitStatusUntracked, want: GitStatusUntracked},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			directoryPath := filepath.Join(root, "directory")
+			newFilePath := filepath.Join(directoryPath, "new-file.md")
+			fake := &gitStatusFileSystem{fakeFileSystem: newFakeFileSystem()}
+			fake.set(root, []filesystem.Entry{
+				{Name: "directory", Mode: fs.ModeDir},
+				{Name: "existing.md", Mode: 0},
+			})
+			fake.set(directoryPath, nil)
+			fake.statuses = []filesystem.GitStatusEntry{
+				{Path: "existing.md", Status: filesystem.GitStatusModified},
+			}
+
+			tree := mustGitStatusTree(t, root, fake)
+			rootRequest, ok := tree.Expand(tree.Root())
+			if !ok {
+				t.Fatal("Expand(root) started no load")
+			}
+			if !tree.ApplyLoad(tree.ReadInitial(rootRequest)) {
+				t.Fatal("ApplyLoad(root) rejected initial result")
+			}
+			if got := tree.GitStatusForPath(filepath.Join(root, "existing.md")); got != GitStatusModified {
+				t.Fatalf("existing status after initial load = %v, want modified", got)
+			}
+
+			fake.set(directoryPath, []filesystem.Entry{{Name: "new-file.md", Mode: 0}})
+			fake.statuses = append(fake.statuses, filesystem.GitStatusEntry{
+				Path:   "directory/new-file.md",
+				Status: test.status,
+			})
+
+			directory := tree.Root().Children()[0]
+			directoryRequest, ok := tree.Expand(directory)
+			if !ok {
+				t.Fatal("Expand(directory) started no load")
+			}
+			result := tree.Read(directoryRequest)
+			if fake.statusCalls != 2 {
+				t.Fatalf("lazy read Git status calls = %d, want 2", fake.statusCalls)
+			}
+			if got := tree.GitStatusForPath(newFilePath); got != GitStatusNone {
+				t.Fatalf("new file status before ApplyLoad = %v, want none", got)
+			}
+			if got := tree.GitStatusForPath(filepath.Join(root, "existing.md")); got != GitStatusModified {
+				t.Fatalf("existing status before ApplyLoad = %v, want modified", got)
+			}
+
+			if !tree.ApplyLoad(result) {
+				t.Fatal("ApplyLoad(directory) rejected lazy result")
+			}
+			if got := tree.GitStatusForPath(newFilePath); got != test.want {
+				t.Fatalf("new file status after lazy read = %v, want %v", got, test.want)
+			}
+			if got := tree.GitStatusForPath(filepath.Join(root, "existing.md")); got != GitStatusModified {
+				t.Fatalf("existing status after lazy read = %v, want modified", got)
+			}
+			if got := tree.GitStatusForPath(root); got != GitStatusModified {
+				t.Fatalf("root aggregate status after lazy read = %v, want modified", got)
+			}
+		})
+	}
+}
+
 func TestTreeGitStatusErrorDisablesColoring(t *testing.T) {
 	root := t.TempDir()
 	fake := &gitStatusFileSystem{
