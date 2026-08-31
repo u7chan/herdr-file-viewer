@@ -50,7 +50,7 @@ const (
 	GitStatusDeleted   = filesystem.GitStatusDeleted
 )
 
-// GitStatusResult is the result of the one initial Git status snapshot.
+// GitStatusResult is the result of one Git status snapshot.
 type GitStatusResult struct {
 	Entries []filesystem.GitStatusEntry
 	Err     error
@@ -182,9 +182,22 @@ func (t *Tree) Reload() []LoadRequest {
 	return requests
 }
 
-// Read executes a request without changing any node state. It is intended to
-// be called from a command goroutine; ApplyLoad is the mutation boundary.
+// Read executes a request without changing any node state. Lazy reads also
+// capture the current Git status so entries discovered after the initial load
+// can be displayed with their current status. It is intended to be called from
+// a command goroutine; ApplyLoad is the mutation boundary.
 func (t *Tree) Read(request LoadRequest) LoadResult {
+	result := t.readFilesystem(request)
+	if result.Err != nil || request.Node == t.root {
+		return result
+	}
+
+	result.GitStatus = t.ReadGitStatus()
+	result.HasGitStatus = true
+	return result
+}
+
+func (t *Tree) readFilesystem(request LoadRequest) LoadResult {
 	result := LoadResult{Node: request.Node, Path: request.Path}
 	if t == nil || t.fileSystem == nil || request.Node == nil || request.Path == "" {
 		result.Err = errInvalidLoadRequest
@@ -210,7 +223,7 @@ func (t *Tree) ReadReload(request LoadRequest) LoadResult {
 }
 
 func (t *Tree) readDirectory(request LoadRequest) LoadResult {
-	result := t.Read(request)
+	result := t.readFilesystem(request)
 	if t != nil && request.Node == t.root {
 		result.GitStatus = t.ReadGitStatus()
 		result.HasGitStatus = true
