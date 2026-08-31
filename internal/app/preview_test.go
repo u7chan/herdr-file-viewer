@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"image/color"
 	"reflect"
 	"strings"
 	"testing"
@@ -296,6 +297,134 @@ func TestPreviewModelLoadsTextThroughCommand(t *testing.T) {
 	}
 }
 
+func TestPreviewWhitespaceToggleRendersDotsWithoutChangingDisplayState(t *testing.T) {
+	reader := &fakePreviewReader{content: []byte("a  b\n\tc")}
+	model := NewPreviewModel("/abs/whitespace.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+	model.selection = previewSelection{
+		anchor: previewPosition{line: 0, col: 1},
+		focus:  previewPosition{line: 0, col: 3},
+	}
+	model.offset = 0
+	model.xoffset = 0
+	displayBefore := append([]previewLine(nil), model.displayLines...)
+	selectionBefore := model.selection
+	offsetBefore, xoffsetBefore := model.offset, model.xoffset
+	off := ansi.Strip(model.View().Content)
+	if strings.Contains(off, previewWhitespaceGlyph) {
+		t.Fatalf("spaces-off view = %q, must not contain whitespace glyph", off)
+	}
+
+	_, cmd := model.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	if cmd != nil {
+		t.Fatalf("whitespace toggle returned command %v, want nil", cmd)
+	}
+	if !model.showWhitespace {
+		t.Fatal("whitespace toggle did not enable display")
+	}
+	if !reflect.DeepEqual(model.displayLines, displayBefore) {
+		t.Fatalf("whitespace toggle rebuilt displayLines: %#v, want %#v", model.displayLines, displayBefore)
+	}
+	if model.selection != selectionBefore || model.offset != offsetBefore || model.xoffset != xoffsetBefore {
+		t.Fatalf("whitespace toggle changed state: selection %#v/%#v offset %d/%d xoffset %d/%d", model.selection, selectionBefore, model.offset, offsetBefore, model.xoffset, xoffsetBefore)
+	}
+	on := ansi.Strip(model.View().Content)
+	if !strings.Contains(on, "a⋅⋅b") || !strings.Contains(on, "⋅⋅⋅⋅c") {
+		t.Fatalf("spaces-on view = %q, want visible spaces", on)
+	}
+
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 's', Text: "s"})
+	if model.showWhitespace {
+		t.Fatal("second whitespace toggle did not disable display")
+	}
+	if got := ansi.Strip(model.View().Content); got != off {
+		t.Fatalf("spaces-off view after second toggle = %q, want %q", got, off)
+	}
+}
+
+func TestPreviewWhitespaceTogglePersistsAcrossReloadResizeAndWrap(t *testing.T) {
+	reader := &fakePreviewReader{content: []byte("first  line\nsecond    line\nthird line")}
+	model := NewPreviewModel("/abs/whitespace-state.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 24, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 's', Text: "s"})
+	if !model.showWhitespace {
+		t.Fatal("whitespace toggle did not enable display")
+	}
+
+	reader.content = []byte("reloaded  line\nnext line")
+	_, cmd := model.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	if cmd == nil {
+		t.Fatal("reload returned nil command")
+	}
+	model.Update(cmd())
+	if !model.showWhitespace {
+		t.Fatal("reload reset whitespace visibility")
+	}
+
+	model.Update(tea.WindowSizeMsg{Width: 30, Height: 8})
+	if !model.showWhitespace {
+		t.Fatal("resize reset whitespace visibility")
+	}
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	if !model.showWhitespace {
+		t.Fatal("wrap toggle reset whitespace visibility")
+	}
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	if !model.showWhitespace {
+		t.Fatal("second wrap toggle reset whitespace visibility")
+	}
+}
+
+func TestPreviewWhitespaceRenderingUsesThemeForegroundAndSelectionBackground(t *testing.T) {
+	model := PreviewModel{
+		lineCount:      1,
+		showWhitespace: true,
+		selection: previewSelection{
+			anchor: previewPosition{line: 0, col: 1},
+			focus:  previewPosition{line: 0, col: 3},
+		},
+	}
+	rendered := model.renderContent(previewLine{text: "a  b", origin: 0}, 4)
+	if got := ansi.Strip(rendered); got != "a⋅⋅b" {
+		t.Fatalf("dark whitespace rendering = %q, want visible spaces", got)
+	}
+	if !strings.Contains(rendered, "38;5;241") || !strings.Contains(rendered, "48;5;240") {
+		t.Fatalf("dark whitespace rendering = %q, want foreground 241 and selection background 240", rendered)
+	}
+
+	model.Update(tea.BackgroundColorMsg{Color: color.RGBA{R: 255, G: 255, B: 255, A: 255}})
+	rendered = model.renderContent(previewLine{text: "a  b", origin: 0}, 4)
+	if !strings.Contains(rendered, "38;5;250") || !strings.Contains(rendered, "48;5;252") {
+		t.Fatalf("light whitespace rendering = %q, want foreground 250 and selection background 252", rendered)
+	}
+}
+
+func TestPreviewWhitespaceToggleLeavesMutedAndUnsupportedContentUnchanged(t *testing.T) {
+	truncatedReader := &fakePreviewReader{content: []byte("trailing  "), truncated: true}
+	truncated := NewPreviewModel("/abs/truncated.txt", nil, "", truncatedReader)
+	truncated.Update(tea.WindowSizeMsg{Width: 70, Height: 8})
+	truncated.Update(previewLoadResult(t, truncated.Init()))
+	marker := truncated.displayLines[len(truncated.displayLines)-1]
+	markerBefore := ansi.Strip(truncated.renderContent(marker, truncated.contentWidth()))
+	truncated.UpdateKeyPreview(tea.KeyPressMsg{Code: 's', Text: "s"})
+	markerAfter := ansi.Strip(truncated.renderContent(truncated.displayLines[len(truncated.displayLines)-1], truncated.contentWidth()))
+	if markerBefore != markerAfter || strings.Contains(markerAfter, previewWhitespaceGlyph) {
+		t.Fatalf("truncation marker changed from %q to %q", markerBefore, markerAfter)
+	}
+
+	unsupportedReader := &fakePreviewReader{content: []byte("ignored")}
+	unsupported := NewPreviewModel("/abs/archive.zip", nil, "", unsupportedReader)
+	unsupported.Update(tea.WindowSizeMsg{Width: 70, Height: 8})
+	unsupported.Update(previewLoadResult(t, unsupported.Init()))
+	unsupportedBefore := ansi.Strip(unsupported.View().Content)
+	unsupported.UpdateKeyPreview(tea.KeyPressMsg{Code: 's', Text: "s"})
+	if got := ansi.Strip(unsupported.View().Content); got != unsupportedBefore {
+		t.Fatalf("unsupported view changed after whitespace toggle: %q -> %q", unsupportedBefore, got)
+	}
+}
+
 func TestPreviewReloadKeyRefreshesContentAndPreservesViewState(t *testing.T) {
 	shortenPreviewToast(t)
 	reader := &fakePreviewReader{content: bytesRepeatContent(20)}
@@ -532,7 +661,7 @@ func TestPreviewModelShowsUnsupportedLabelForBinaryCategory(t *testing.T) {
 	if strings.Contains(content, "PK") {
 		t.Fatalf("view = %q, must not show binary content", content)
 	}
-	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " w wrap    space copy    r reload    q close" {
+	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " w wrap    s spaces    space copy    r reload    q close" {
 		t.Fatalf("footer = %q, want preview shortcuts", got)
 	}
 }
@@ -776,7 +905,7 @@ func TestPreviewBodyOmitsDividerWithoutGutter(t *testing.T) {
 func TestPreviewRendersTitleFooterAndTruncatedMarker(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("short"), truncated: true}
 	model := NewPreviewModel("/abs/very-long-directory-name/file.txt", nil, "", reader)
-	model.Update(tea.WindowSizeMsg{Width: 50, Height: 6})
+	model.Update(tea.WindowSizeMsg{Width: 70, Height: 6})
 	model.Update(previewLoadResult(t, model.Init()))
 
 	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
@@ -789,7 +918,7 @@ func TestPreviewRendersTitleFooterAndTruncatedMarker(t *testing.T) {
 	if !strings.Contains(lines[markerRow], "truncated (2 MiB limit)") {
 		t.Fatalf("body marker = %q, want truncated marker", lines[markerRow])
 	}
-	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " w wrap    space copy    r reload    q close" {
+	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " w wrap    s spaces    space copy    r reload    q close" {
 		t.Fatalf("footer = %q, want preview shortcuts", got)
 	}
 }
@@ -797,13 +926,13 @@ func TestPreviewRendersTitleFooterAndTruncatedMarker(t *testing.T) {
 func TestPreviewFooterShowsLoadingThenReadyAndWarning(t *testing.T) {
 	reader := &fakePreviewReader{content: []byte("x")}
 	model := NewPreviewModel("/abs/s.txt", nil, "", reader)
-	model.Update(tea.WindowSizeMsg{Width: 50, Height: 6})
+	model.Update(tea.WindowSizeMsg{Width: 70, Height: 6})
 
 	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " "+previewLoadingStatus {
 		t.Fatalf("loading footer = %q, want %q", got, " "+previewLoadingStatus)
 	}
 	model.Update(previewLoadResult(t, model.Init()))
-	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " w wrap    space copy    r reload    q close" {
+	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " w wrap    s spaces    space copy    r reload    q close" {
 		t.Fatalf("ready footer = %q, want shortcuts", got)
 	}
 
@@ -1089,7 +1218,7 @@ func TestPreviewCopyToastTimesOutAndFooterReturnsToHelp(t *testing.T) {
 	shortenPreviewToast(t)
 	reader := &fakePreviewReader{content: []byte("first\nsecond")}
 	model := NewPreviewModel("/abs/copy.txt", nil, "", reader)
-	model.Update(tea.WindowSizeMsg{Width: 50, Height: 8})
+	model.Update(tea.WindowSizeMsg{Width: 70, Height: 8})
 	model.Update(previewLoadResult(t, model.Init()))
 	model.selection = previewSelection{
 		anchor: previewPosition{line: 0, col: 1},
@@ -1113,7 +1242,7 @@ func TestPreviewCopyToastTimesOutAndFooterReturnsToHelp(t *testing.T) {
 	if model.toast != "" {
 		t.Fatalf("toast = %q, want cleared after timeout", model.toast)
 	}
-	if got := footer(); got != " w wrap    space copy    r reload    q close" {
+	if got := footer(); got != " w wrap    s spaces    space copy    r reload    q close" {
 		t.Fatalf("footer after timeout = %q, want shortcuts", got)
 	}
 }
@@ -1122,14 +1251,14 @@ func TestPreviewFooterToastOutranksStatusAndHelp(t *testing.T) {
 	shortenPreviewToast(t)
 	reader := &fakePreviewReader{content: []byte("first\nsecond")}
 	model := NewPreviewModel("/abs/copy.txt", nil, "", reader)
-	model.Update(tea.WindowSizeMsg{Width: 50, Height: 6})
+	model.Update(tea.WindowSizeMsg{Width: 70, Height: 6})
 	model.Update(previewLoadResult(t, model.Init()))
 
 	footer := func() string {
 		lines := strings.Split(ansi.Strip(model.View().Content), "\n")
 		return strings.TrimRight(lines[len(lines)-1], " ")
 	}
-	if got := footer(); got != " w wrap    space copy    r reload    q close" {
+	if got := footer(); got != " w wrap    s spaces    space copy    r reload    q close" {
 		t.Fatalf("ready footer = %q, want shortcuts", got)
 	}
 
@@ -1158,7 +1287,7 @@ func TestPreviewFooterToastOutranksStatusAndHelp(t *testing.T) {
 	}
 
 	model.status = model.readyStatus()
-	if got := footer(); got != " w wrap    space copy    r reload    q close" {
+	if got := footer(); got != " w wrap    s spaces    space copy    r reload    q close" {
 		t.Fatalf("help footer when ready = %q, want shortcuts", got)
 	}
 }

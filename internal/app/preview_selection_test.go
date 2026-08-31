@@ -91,7 +91,7 @@ func TestPreviewSelectionSpansCoverSingleAndMultipleLines(t *testing.T) {
 		anchor: previewPosition{line: 0, col: 1},
 		focus:  previewPosition{line: 0, col: 4},
 	}
-	if got, want := previewSelectionSpans(line, selection), []previewTextSpan{
+	if got, want := previewSelectionSpans(line, selection, false), []previewTextSpan{
 		{text: "a"}, {text: "bcd", selected: true}, {text: "ef"},
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("single-line spans = %#v, want %#v", got, want)
@@ -101,13 +101,44 @@ func TestPreviewSelectionSpansCoverSingleAndMultipleLines(t *testing.T) {
 		anchor: previewPosition{line: 1, col: 1},
 		focus:  previewPosition{line: 0, col: 2},
 	}
-	first := previewSelectionSpans(previewLine{text: "abcd", origin: 0}, selection)
-	second := previewSelectionSpans(previewLine{text: "efgh", origin: 1}, selection)
+	first := previewSelectionSpans(previewLine{text: "abcd", origin: 0}, selection, false)
+	second := previewSelectionSpans(previewLine{text: "efgh", origin: 1}, selection, false)
 	if want := []previewTextSpan{{text: "ab"}, {text: "cd", selected: true}}; !reflect.DeepEqual(first, want) {
 		t.Fatalf("first multi-line spans = %#v, want %#v", first, want)
 	}
 	if want := []previewTextSpan{{text: "e", selected: true}, {text: "fgh"}}; !reflect.DeepEqual(second, want) {
 		t.Fatalf("last multi-line spans = %#v, want %#v", second, want)
+	}
+}
+
+func TestPreviewSelectionSpansClassifyOnlyStandaloneHalfWidthSpaces(t *testing.T) {
+	line := previewLine{text: "a  b\u3000\u00a0c", origin: 0}
+	if got, want := previewSelectionSpans(line, previewSelection{}, true), []previewTextSpan{
+		{text: "a"}, {text: "  ", space: true}, {text: "b\u3000\u00a0c"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("whitespace spans = %#v, want %#v", got, want)
+	}
+
+	if got, want := previewSelectionSpans(line, previewSelection{}, false), []previewTextSpan{{text: line.text}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("spaces-off spans = %#v, want %#v", got, want)
+	}
+
+	selection := previewSelection{
+		anchor: previewPosition{line: 0, col: 1},
+		focus:  previewPosition{line: 0, col: 3},
+	}
+	if got, want := previewSelectionSpans(line, selection, true), []previewTextSpan{
+		{text: "a"}, {text: "  ", space: true, selected: true}, {text: "b\u3000\u00a0c"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("selected whitespace spans = %#v, want %#v", got, want)
+	}
+}
+
+func TestPreviewSelectionSpansClassifyExpandedTabsAsSpaces(t *testing.T) {
+	line := previewTextLines([]byte("\t  "))[0]
+	got := previewSelectionSpans(line, previewSelection{}, true)
+	if want := []previewTextSpan{{text: "      ", space: true}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("expanded-tab spans = %#v, want %#v", got, want)
 	}
 }
 
@@ -123,7 +154,7 @@ func TestPreviewSelectionSpansMapWrapContinuationAndMutedLines(t *testing.T) {
 		{{text: "i", selected: true}, {text: "j"}},
 	}
 	for index, want := range wants {
-		got := previewSelectionSpans(display[index], selection)
+		got := previewSelectionSpans(display[index], selection, false)
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("display line %d spans = %#v, want %#v", index, got, want)
 		}
@@ -138,20 +169,20 @@ func TestPreviewSelectionSpansDoNotSplitWideGraphemes(t *testing.T) {
 	if got, want := previewSelectionSpans(line, previewSelection{
 		anchor: previewPosition{line: 0, col: 1},
 		focus:  previewPosition{line: 0, col: 3},
-	}), []previewTextSpan{{text: "a"}, {text: "日", selected: true}, {text: "b"}}; !reflect.DeepEqual(got, want) {
+	}, false), []previewTextSpan{{text: "a"}, {text: "日", selected: true}, {text: "b"}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("wide-grapheme spans = %#v, want %#v", got, want)
 	}
 	if got := previewSelectionSpans(line, previewSelection{
 		anchor: previewPosition{line: 0, col: 1},
 		focus:  previewPosition{line: 0, col: 2},
-	}); !reflect.DeepEqual(got, []previewTextSpan{{text: "a日b"}}) {
+	}, false); !reflect.DeepEqual(got, []previewTextSpan{{text: "a日b"}}) {
 		t.Fatalf("straddled wide-grapheme spans = %#v, want unselected text", got)
 	}
 }
 
 func TestPreviewSelectionSpansRetainZeroWidthGraphemes(t *testing.T) {
 	line := previewLine{text: "\u0301a", origin: 0}
-	spans := previewSelectionSpans(line, previewSelection{})
+	spans := previewSelectionSpans(line, previewSelection{}, false)
 	if got := strings.Join(previewSpanTexts(spans), ""); got != line.text {
 		t.Fatalf("zero-width grapheme spans = %#v, text %q; want %q", spans, got, line.text)
 	}
