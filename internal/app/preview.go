@@ -27,23 +27,28 @@ const (
 	// previewTabWidth is the fixed cell width used for tab expansion.
 	previewTabWidth = 4
 
-	previewLoadingStatus            = "Loading preview..."
-	previewUntitled                 = "Preview"
-	previewHelpWrapKey              = "w"
-	previewHelpWrapLabel            = "wrap"
-	previewHelpCopyKey              = "space"
-	previewHelpCopyLabel            = "copy"
-	previewHelpReloadKey            = "r"
-	previewHelpReloadLabel          = "reload"
-	previewHelpCloseKey             = "q"
-	previewHelpCloseLabel           = "close"
-	previewNoSelectionStatus        = "No selection"
-	previewUnsupportedPrefix        = "Unsupported preview: "
-	previewGutterDividerGlyph       = "│"
-	previewHorizontalTrackGlyph     = "─"
-	previewHorizontalThumbGlyph     = "━"
-	previewSelectionBackground      = "240"
-	previewSelectionBackgroundLight = "252"
+	previewLoadingStatus             = "Loading preview..."
+	previewUntitled                  = "Preview"
+	previewHelpWrapKey               = "w"
+	previewHelpWrapLabel             = "wrap"
+	previewHelpWhitespaceKey         = "s"
+	previewHelpWhitespaceLabel       = "spaces"
+	previewHelpCopyKey               = "space"
+	previewHelpCopyLabel             = "copy"
+	previewHelpReloadKey             = "r"
+	previewHelpReloadLabel           = "reload"
+	previewHelpCloseKey              = "q"
+	previewHelpCloseLabel            = "close"
+	previewNoSelectionStatus         = "No selection"
+	previewUnsupportedPrefix         = "Unsupported preview: "
+	previewGutterDividerGlyph        = "│"
+	previewHorizontalTrackGlyph      = "─"
+	previewHorizontalThumbGlyph      = "━"
+	previewSelectionBackground       = "240"
+	previewSelectionBackgroundLight  = "252"
+	previewWhitespaceGlyph           = "⋅"
+	previewWhitespaceForeground      = 241
+	previewWhitespaceForegroundLight = 250
 )
 
 var previewTruncatedMarker = fmt.Sprintf("… truncated (%d MiB limit)", previewMaxBytes>>20)
@@ -53,8 +58,10 @@ var previewTruncatedMarker = fmt.Sprintf("… truncated (%d MiB limit)", preview
 var previewToastDuration = 3 * time.Second
 
 var (
-	previewSelectionStyleDark  = lipgloss.NewStyle().Background(lipgloss.Color(previewSelectionBackground))
-	previewSelectionStyleLight = lipgloss.NewStyle().Background(lipgloss.Color(previewSelectionBackgroundLight))
+	previewSelectionStyleDark   = lipgloss.NewStyle().Background(lipgloss.Color(previewSelectionBackground))
+	previewSelectionStyleLight  = lipgloss.NewStyle().Background(lipgloss.Color(previewSelectionBackgroundLight))
+	previewWhitespaceStyleDark  = lipgloss.NewStyle().Inline(true).Foreground(lipgloss.ANSIColor(previewWhitespaceForeground))
+	previewWhitespaceStyleLight = lipgloss.NewStyle().Inline(true).Foreground(lipgloss.ANSIColor(previewWhitespaceForegroundLight))
 )
 
 func previewSelectionStyle(lightBackground bool) lipgloss.Style {
@@ -62,6 +69,13 @@ func previewSelectionStyle(lightBackground bool) lipgloss.Style {
 		return previewSelectionStyleLight
 	}
 	return previewSelectionStyleDark
+}
+
+func previewWhitespaceStyle(lightBackground bool) lipgloss.Style {
+	if lightBackground {
+		return previewWhitespaceStyleLight
+	}
+	return previewWhitespaceStyleDark
 }
 
 // previewCategory classifies a preview target for the unsupported label.
@@ -158,11 +172,12 @@ type PreviewModel struct {
 	maxContentWidth int
 	truncated       bool
 
-	wrap    bool
-	offset  int
-	xoffset int
-	width   int
-	height  int
+	wrap           bool
+	showWhitespace bool
+	offset         int
+	xoffset        int
+	width          int
+	height         int
 
 	// The zero value keeps the existing dark palette until detection succeeds.
 	lightBackground bool
@@ -313,6 +328,8 @@ func (m *PreviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "w":
 			m.toggleWrap()
+		case "s":
+			m.showWhitespace = !m.showWhitespace
 		case "space", "\u3000":
 			return m, m.copySelection()
 		}
@@ -807,25 +824,51 @@ func (m *PreviewModel) renderGutter(line previewLine) string {
 	return strings.Repeat(" ", m.gutterWidth())
 }
 
+func previewWhitespaceText(value string) string {
+	if value == "" {
+		return ""
+	}
+	if strings.Trim(value, " ") == "" {
+		return strings.Repeat(previewWhitespaceGlyph, utf8.RuneCountInString(value))
+	}
+
+	var rendered strings.Builder
+	iter := graphemes.FromString(value)
+	for iter.Next() {
+		piece := iter.Value()
+		if piece == " " && lipgloss.Width(piece) == 1 {
+			rendered.WriteString(previewWhitespaceGlyph)
+		} else {
+			rendered.WriteString(piece)
+		}
+	}
+	return rendered.String()
+}
+
 func (m *PreviewModel) renderContent(line previewLine, width int) string {
 	viewOffset := 0
 	if !m.wrap {
 		viewOffset = m.xoffset
 	}
-	spans := previewVisibleSpans(previewSelectionSpans(line, m.selection), viewOffset, width)
+	spans := previewVisibleSpans(previewSelectionSpans(line, m.selection, m.showWhitespace && !line.muted), viewOffset, width)
 	selectionStyle := previewSelectionStyle(m.lightBackground)
 	var rendered strings.Builder
 	renderedWidth := 0
 	for _, span := range spans {
 		style := previewSyntaxStyle(span.token, m.lightBackground)
+		text := span.text
+		if span.space {
+			style = previewWhitespaceStyle(m.lightBackground)
+			text = previewWhitespaceText(span.text)
+		}
 		if line.muted {
 			style = dividerStyle.Inline(true)
 		}
 		if span.selected {
 			style = style.Inherit(selectionStyle)
 		}
-		rendered.WriteString(style.Render(span.text))
-		renderedWidth += lipgloss.Width(span.text)
+		rendered.WriteString(style.Render(text))
+		renderedWidth += lipgloss.Width(text)
 	}
 	if padding := width - renderedWidth; padding > 0 {
 		rendered.WriteString(lipgloss.NewStyle().Inline(true).Render(strings.Repeat(" ", padding)))
@@ -860,6 +903,7 @@ func (m *PreviewModel) renderFooter() string {
 		return m.renderLine(m.status)
 	}
 	help := renderShortcut(previewHelpWrapKey, previewHelpWrapLabel) + helpGroupSeparator +
+		renderShortcut(previewHelpWhitespaceKey, previewHelpWhitespaceLabel) + helpGroupSeparator +
 		renderShortcut(previewHelpCopyKey, previewHelpCopyLabel) + helpGroupSeparator +
 		renderShortcut(previewHelpReloadKey, previewHelpReloadLabel) + helpGroupSeparator +
 		renderShortcut(previewHelpCloseKey, previewHelpCloseLabel)

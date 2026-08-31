@@ -56,13 +56,14 @@ func (s previewSelection) selectionRange() (previewPosition, previewPosition, bo
 type previewTextSpan struct {
 	text     string
 	token    chroma.TokenType
+	space    bool
 	selected bool
 }
 
 // previewSelectionSpans splits one display line at syntax, selection, and
 // grapheme boundaries. Selection ranges are evaluated in original-line
 // coordinates, so all wrap continuations of one line share the same interval.
-func previewSelectionSpans(line previewLine, selection previewSelection) []previewTextSpan {
+func previewSelectionSpans(line previewLine, selection previewSelection, showWhitespace bool) []previewTextSpan {
 	lineStart := line.col
 	lineEnd := lineStart + lipgloss.Width(line.text)
 	if line.origin < 0 || lineEnd <= lineStart {
@@ -74,6 +75,7 @@ func previewSelectionSpans(line previewLine, selection previewSelection) []previ
 	var current strings.Builder
 	var pendingZeroWidth strings.Builder
 	var currentToken chroma.TokenType
+	var currentSpace bool
 	var currentSelected bool
 	hasCurrent := false
 	flush := func() {
@@ -83,6 +85,7 @@ func previewSelectionSpans(line previewLine, selection previewSelection) []previ
 		result = append(result, previewTextSpan{
 			text:     current.String(),
 			token:    currentToken,
+			space:    currentSpace,
 			selected: currentSelected,
 		})
 		current = strings.Builder{}
@@ -106,15 +109,18 @@ func previewSelectionSpans(line previewLine, selection previewSelection) []previ
 		}
 		selected := hasSelection && absoluteStart >= selectedStart && absoluteEnd <= selectedEnd
 		token := previewSyntaxTokenForRange(line.spans, absoluteStart, absoluteEnd)
+		space := showWhitespace && piece == " " && width == 1
 		if !hasCurrent {
 			current.WriteString(pendingZeroWidth.String())
 			pendingZeroWidth = strings.Builder{}
 			currentToken = token
+			currentSpace = space
 			currentSelected = selected
 			hasCurrent = true
-		} else if currentToken != token || currentSelected != selected {
+		} else if currentToken != token || currentSpace != space || currentSelected != selected {
 			flush()
 			currentToken = token
+			currentSpace = space
 			currentSelected = selected
 			hasCurrent = true
 		}
@@ -381,6 +387,7 @@ func previewVisibleSpan(span previewTextSpan, start, end int) (previewTextSpan, 
 	return previewTextSpan{
 		text:     span.text[firstByte:lastByte],
 		token:    span.token,
+		space:    span.space,
 		selected: span.selected,
 	}, true
 }

@@ -141,7 +141,7 @@ is not used), and shows a snapshot of its head.
 The layout mirrors the tree:
 a centered title (absolute path, tail-truncated with `…`), dividers, a body
 with a line-number gutter and a vertical divider, and the footer
-`w wrap    space copy    r reload    q close`.
+`w wrap    s spaces    space copy    r reload    q close`.
 
 Previewability is classified before rendering: known image, video, audio, and
 binary extensions (`png`, `mp4`, `mp3`, `zip`, `exe`, `so`, `pdf`, ...) show
@@ -168,6 +168,9 @@ Scrolling in the preview:
 - `w`: toggle hard wrap (default off). With wrap on, lines break at the pane
   width, continuation rows keep a blank gutter, and the horizontal offset is
   reset. With wrap off, lines scroll horizontally instead of truncating.
+- `s`: toggle visualization of U+0020 half-width spaces as `⋅` (default off).
+  The display-only toggle does not change wrapping, scrolling, selection, or
+  copied text.
 - `r`: reload the displayed path from disk using the same 2 MiB head and text
   pipeline. The scroll position is clamped to the new content, wrap mode is
   preserved, and any selection is cleared on a successful reload. A successful

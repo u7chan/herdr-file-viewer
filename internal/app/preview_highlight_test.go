@@ -160,7 +160,7 @@ func TestPreviewSyntaxSelectionKeepsForegroundAndPlainCopy(t *testing.T) {
 		anchor: previewPosition{line: 0, col: 0},
 		focus:  previewPosition{line: 0, col: 7},
 	}
-	spans := previewSelectionSpans(line, selection)
+	spans := previewSelectionSpans(line, selection, false)
 	var selected previewTextSpan
 	for _, span := range spans {
 		if span.selected {
