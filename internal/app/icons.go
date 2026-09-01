@@ -32,8 +32,8 @@ const (
 	expandedTreeIcon  = ""
 	rootTreeIcon      = ""
 	symlinkTreeIcon   = ""
-	branchTreeIcon    = "\uf418" // nf-oct-git_branch
-	worktreeTreeIcon  = "\uf401" // nf-oct-repo
+	branchTreeIcon    = "\uf418"     // nf-oct-git_branch
+	worktreeTreeIcon  = "\U000f0645" // nf-md-file_tree
 )
 
 // Special names take precedence over extension matches.

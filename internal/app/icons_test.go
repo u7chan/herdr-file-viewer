@@ -115,6 +115,25 @@ func TestGitInfoIconsAreSingleCellWide(t *testing.T) {
 	}
 }
 
+func TestGitInfoIconsUseCurrentNerdFontsCodepoints(t *testing.T) {
+	// Pins the v3 codepoints so an unintended swap can't slip back: the
+	// worktree marker is nf-md-file_tree (U+F0645), the branch marker stays
+	// nf-oct-git_branch (U+F418).
+	codepoints := map[string]string{
+		"branch":   branchTreeIcon,
+		"worktree": worktreeTreeIcon,
+	}
+	want := map[string]string{
+		"branch":   "\uf418",
+		"worktree": "\U000f0645",
+	}
+	for name, icon := range codepoints {
+		if icon != want[name] {
+			t.Errorf("%s icon = %q, want codepoint %q", name, icon, want[name])
+		}
+	}
+}
+
 func TestIconStyleAppliesThePaletteColorPerGlyphFamily(t *testing.T) {
 	tests := []struct {
 		name  string
