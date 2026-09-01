@@ -3,6 +3,7 @@ package filesystem
 import (
 	"bytes"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -37,6 +38,27 @@ type GitIgnoreReader interface {
 // can continue to implement it without a subprocess dependency.
 type GitStatusReader interface {
 	ReadGitStatus(path string) ([]GitStatusEntry, error)
+}
+
+// WorktreeInfo is the branch and linked-worktree snapshot shown on the
+// sticky Git info line. Branch and ShortSHA are mutually exclusive: Branch
+// is the current branch name, ShortSHA the abbreviated HEAD used in place of
+// the branch when the checkout is detached. IsLinked reports that the
+// directory is a linked worktree rather than the main checkout, in which
+// case RepoName is the repository display name (the main checkout directory
+// name, mirroring Herdr's label).
+type WorktreeInfo struct {
+	Branch   string
+	ShortSHA string
+	RepoName string
+	IsLinked bool
+}
+
+// GitWorktreeReader is an optional filesystem capability for branch and
+// worktree lookup, kept separate from GitStatusReader so deterministic
+// callers can opt into each subprocess independently.
+type GitWorktreeReader interface {
+	ReadWorktreeInfo(path string) (WorktreeInfo, error)
 }
 
 // ReadGitStatus obtains one NUL-delimited porcelain snapshot. A command error
@@ -112,6 +134,93 @@ func gitStatusForXY(index, worktree byte) GitStatus {
 		return GitStatusUntracked
 	}
 	return GitStatusNone
+}
+
+// ReadWorktreeInfo obtains the branch and linked-worktree state of a working
+// tree root. A command error means the directory is not a usable Git working
+// tree (or Git is unavailable), and callers may hide the info line entirely.
+func (Local) ReadWorktreeInfo(path string) (WorktreeInfo, error) {
+	branch, err := runGitIn(path, "branch", "--show-current")
+	if err != nil {
+		return WorktreeInfo{}, err
+	}
+
+	info := WorktreeInfo{Branch: strings.TrimSpace(string(branch))}
+	if info.Branch == "" {
+		sha, shaErr := runGitIn(path, "rev-parse", "--short", "HEAD")
+		if shaErr == nil {
+			info.ShortSHA = strings.TrimSpace(string(sha))
+		}
+		// A detached HEAD without any commit has no abbreviated SHA; the
+		// branch slot stays empty so callers render whatever remains.
+	}
+
+	porcelain, err := runGitIn(path, "worktree", "list", "--porcelain")
+	if err != nil {
+		return WorktreeInfo{}, err
+	}
+	paths := parseWorktreePorcelain(porcelain)
+	if len(paths) == 0 {
+		return info, nil
+	}
+
+	for index, worktreePath := range paths {
+		if !worktreePathMatches(worktreePath, path) {
+			continue
+		}
+		if index == 0 {
+			// The first record is the main checkout: no worktree column.
+			return info, nil
+		}
+		info.IsLinked = true
+		info.RepoName = filepath.Base(paths[0])
+		return info, nil
+	}
+	// No porcelain entry matches the directory (for example the root is a
+	// subdirectory of a worktree), so the worktree column stays empty.
+	return info, nil
+}
+
+func runGitIn(path string, args ...string) ([]byte, error) {
+	command := exec.Command("git", args...)
+	command.Dir = path
+	return command.Output()
+}
+
+// parseWorktreePorcelain returns the worktree paths in listing order. Every
+// record begins with a "worktree <path>" attribute, so the first path is the
+// main checkout and later paths are linked worktrees; the remaining
+// attributes (HEAD, branch, detached, bare, ...) are skipped.
+func parseWorktreePorcelain(output []byte) []string {
+	var paths []string
+	for _, line := range strings.Split(string(output), "\n") {
+		if rest, ok := strings.CutPrefix(line, "worktree "); ok {
+			paths = append(paths, strings.TrimSpace(rest))
+		}
+	}
+	return paths
+}
+
+// worktreePathMatches reports whether a porcelain worktree path refers to
+// the same directory as root. Symlinks on either side are resolved so a
+// launch root reached through a symlink still matches its working tree.
+func worktreePathMatches(worktreePath, root string) bool {
+	candidates := []string{filepath.Clean(worktreePath)}
+	if resolved, err := filepath.EvalSymlinks(worktreePath); err == nil {
+		candidates = append(candidates, filepath.Clean(resolved))
+	}
+	targets := []string{filepath.Clean(root)}
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		targets = append(targets, filepath.Clean(resolved))
+	}
+	for _, candidate := range candidates {
+		for _, target := range targets {
+			if candidate == target {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ReadGitIgnore reports which of the candidate paths (relative to path, the

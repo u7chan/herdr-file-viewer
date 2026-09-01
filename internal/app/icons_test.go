@@ -104,6 +104,17 @@ func TestAllFileIconsAreSingleCellWide(t *testing.T) {
 	}
 }
 
+func TestGitInfoIconsAreSingleCellWide(t *testing.T) {
+	for name, icon := range map[string]string{
+		"branch":   branchTreeIcon,
+		"worktree": worktreeTreeIcon,
+	} {
+		if got := lipgloss.Width(icon); got != 1 {
+			t.Errorf("%s icon = %q has width %d, want 1", name, icon, got)
+		}
+	}
+}
+
 func TestIconStyleAppliesThePaletteColorPerGlyphFamily(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -120,6 +131,8 @@ func TestIconStyleAppliesThePaletteColorPerGlyphFamily(t *testing.T) {
 		{name: "directory open", glyph: iconsFor(iconSetFontAwesomeSolid).directoryOpen, want: lipgloss.Color("179")},
 		{name: "directory in every icon set", glyph: iconsFor(iconSetCodicon).directory, want: lipgloss.Color("179")},
 		{name: "symlink", glyph: symlinkTreeIcon, want: lipgloss.Color("81")},
+		{name: "branch", glyph: branchTreeIcon, want: lipgloss.Color("215")},
+		{name: "worktree", glyph: worktreeTreeIcon, want: lipgloss.Color("75")},
 	}
 
 	for _, test := range tests {
@@ -147,7 +160,9 @@ func TestIconStyleLeavesUnlistedGlyphsUncolored(t *testing.T) {
 
 func TestEveryPaletteKeyMatchesAKnownTreeGlyph(t *testing.T) {
 	known := map[string]bool{
-		symlinkTreeIcon: true,
+		symlinkTreeIcon:  true,
+		branchTreeIcon:   true,
+		worktreeTreeIcon: true,
 	}
 	for _, icon := range exactNameIcons {
 		known[icon] = true

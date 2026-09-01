@@ -402,8 +402,10 @@ func (m *Model) treeStartY() int {
 	return headerHeight + headerDividerHeight(m.height)
 }
 
+// scrollableStartY returns the first row of the scrollable tree region, below
+// the sticky root row and the Git info line when it is visible.
 func (m *Model) scrollableStartY() int {
-	return m.treeStartY() + stickyRootHeight
+	return m.treeStartY() + m.stickyRowCount()
 }
 
 func (m *Model) isScrollableTreeY(y int) bool {
@@ -412,19 +414,38 @@ func (m *Model) isScrollableTreeY(y int) bool {
 	return scrollHeight > 0 && y >= startY && y < startY+scrollHeight
 }
 
+// stickyRowCount is the number of fixed rows above the scrollable region:
+// the root row, plus the Git info line when the last snapshot succeeded.
+func (m *Model) stickyRowCount() int {
+	if m != nil && m.gitInfoVisible() {
+		return stickyRootHeight + 1
+	}
+	return stickyRootHeight
+}
+
+// gitInfoVisible reports whether the sticky Git info line is rendered, which
+// requires a successful branch/worktree snapshot on a Git-aware filesystem.
+func (m *Model) gitInfoVisible() bool {
+	if m == nil || m.tree == nil {
+		return false
+	}
+	_, ok := m.tree.WorktreeInfo()
+	return ok
+}
+
 func (m *Model) scrollableViewportHeight() int {
 	_, treeHeight, _ := layoutHeights(m.height)
-	if treeHeight <= stickyRootHeight || len(m.visibleRows) == 0 {
+	if treeHeight <= m.stickyRowCount() || len(m.visibleRows) == 0 {
 		return 0
 	}
-	return treeHeight - stickyRootHeight
+	return treeHeight - m.stickyRowCount()
 }
 
 func (m *Model) scrollableRowCount() int {
-	if len(m.visibleRows) <= stickyRootHeight {
+	if len(m.visibleRows) <= m.stickyRowCount() {
 		return 0
 	}
-	return len(m.visibleRows) - stickyRootHeight
+	return len(m.visibleRows) - m.stickyRowCount()
 }
 
 func (m *Model) rowIndexAtY(y int) (int, bool) {
@@ -442,11 +463,12 @@ func (m *Model) rowIndexAtY(y int) (int, bool) {
 	if localY == 0 && len(m.visibleRows) > 0 {
 		return 0, true
 	}
-	if localY < stickyRootHeight || localY >= stickyRootHeight+m.scrollableViewportHeight() {
+	sticky := m.stickyRowCount()
+	if localY < sticky || localY >= sticky+m.scrollableViewportHeight() {
 		return 0, false
 	}
 
-	index := stickyRootHeight + m.offset + localY - stickyRootHeight
+	index := m.offset + localY
 	if index < 0 || index >= len(m.visibleRows) {
 		return 0, false
 	}
@@ -746,10 +768,11 @@ func (m *Model) keepSelectionVisible() {
 		return
 	}
 	m.offset = m.clampOffset(m.offset, scrollHeight)
+	sticky := m.stickyRowCount()
 	if m.selected == 0 {
 		return
 	}
-	selectedOffset := m.selected - stickyRootHeight
+	selectedOffset := m.selected - sticky
 	if selectedOffset < m.offset {
 		m.offset = selectedOffset
 	}
@@ -777,15 +800,16 @@ func (m *Model) clampSelectionToViewport() {
 		return
 	}
 	m.offset = m.clampOffset(m.offset, scrollHeight)
+	sticky := m.stickyRowCount()
 	if m.selected == 0 {
 		return
 	}
-	selectedOffset := m.selected - stickyRootHeight
+	selectedOffset := m.selected - sticky
 	if selectedOffset < m.offset {
-		m.selected = m.offset + stickyRootHeight
+		m.selected = m.offset + sticky
 	}
 	if selectedOffset >= m.offset+scrollHeight {
-		m.selected = m.offset + scrollHeight - 1 + stickyRootHeight
+		m.selected = m.offset + scrollHeight - 1 + sticky
 	}
 	if m.selected >= len(m.visibleRows) {
 		m.selected = len(m.visibleRows) - 1
@@ -822,25 +846,61 @@ func (m *Model) renderTree(treeHeight int) []string {
 	if len(m.visibleRows) > 0 {
 		lines[0] = leftPadding + m.renderRowWidth(0, m.visibleRows[0], contentWidth) + blankScrollbarCell
 	}
+	if m.gitInfoVisible() && treeHeight > stickyRootHeight {
+		line := m.renderGitInfoLine(contentWidth)
+		if m.letterColumnReserved() && contentWidth > 0 {
+			// Keep the reserved gap+letter cells so the scrollbar stays in
+			// the same column as the status rows below; the tiny-width rows
+			// render no letter column either.
+			line += "  "
+		}
+		lines[stickyRootHeight] = leftPadding + line + blankScrollbarCell
+	}
 
-	scrollHeight := treeHeight - stickyRootHeight
+	sticky := m.stickyRowCount()
+	scrollHeight := treeHeight - sticky
 	if scrollHeight <= 0 {
 		return lines
 	}
 	metrics := newScrollbarMetrics(scrollHeight, m.scrollableRowCount(), m.offset)
-	for rowIndex := stickyRootHeight; rowIndex < len(lines); rowIndex++ {
-		index := stickyRootHeight + metrics.offset + rowIndex - stickyRootHeight
+	for rowIndex := sticky; rowIndex < len(lines); rowIndex++ {
+		index := metrics.offset + rowIndex
 		line := strings.Repeat(" ", contentWidth)
-		if index >= stickyRootHeight && index < len(m.visibleRows) {
+		if index >= sticky && index < len(m.visibleRows) {
 			line = m.renderRowWidth(index, m.visibleRows[index], contentWidth)
 		} else if m.letterColumnReserved() {
 			// Empty padding rows keep the reserved gap+letter cells so the
 			// scrollbar stays in the same column.
 			line += "  "
 		}
-		lines[rowIndex] = leftPadding + line + m.renderScrollbarCell(rowIndex-stickyRootHeight, metrics)
+		lines[rowIndex] = leftPadding + line + m.renderScrollbarCell(rowIndex-sticky, metrics)
 	}
 	return lines
+}
+
+// renderGitInfoLine paints the sticky branch and linked-worktree segments.
+// The icons keep their palette colors; the text follows the default
+// foreground so the line stays readable on both background palettes.
+func (m *Model) renderGitInfoLine(width int) string {
+	if width <= 0 || m.tree == nil {
+		return ""
+	}
+	info, ok := m.tree.WorktreeInfo()
+	if !ok {
+		return ""
+	}
+	parts := make([]string, 0, 2)
+	branch := info.Branch
+	if branch == "" {
+		branch = info.ShortSHA
+	}
+	if branch != "" {
+		parts = append(parts, iconStyle(branchTreeIcon).Render(branchTreeIcon)+" "+sanitizeDisplay(branch))
+	}
+	if info.IsLinked && info.RepoName != "" {
+		parts = append(parts, iconStyle(worktreeTreeIcon).Render(worktreeTreeIcon)+" "+sanitizeDisplay(info.RepoName))
+	}
+	return truncateToWidth(strings.Join(parts, "   "), width)
 }
 
 func (m *Model) renderRowWidth(index int, row browser.VisibleRow, width int) string {
