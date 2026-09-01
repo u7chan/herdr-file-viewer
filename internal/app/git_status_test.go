@@ -95,7 +95,7 @@ func TestGitStatusColorsRowsAndAggregatesDirectories(t *testing.T) {
 	}
 	model := NewModel(root, "", fake)
 	model.Update(loadResultFromInit(t, model.Init()))
-	model.Update(teaWindowSize(80, 10))
+	model.Update(teaWindowSize(80, 11))
 
 	view := model.View().Content
 	for _, test := range []struct {

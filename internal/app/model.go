@@ -20,15 +20,19 @@ import (
 var toastDisplayDuration = 3 * time.Second
 
 var (
-	titleStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Align(lipgloss.Center)
-	selectedStyleDark   = lipgloss.NewStyle().Background(lipgloss.Color(selectedRowBackgroundDark))
-	selectedStyleLight  = lipgloss.NewStyle().Background(lipgloss.Color(selectedRowBackgroundLight))
-	toastStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
-	dividerStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	scrollbarTrackStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	scrollbarThumbStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("62"))
-	helpKeyStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255"))
-	helpLabelStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	titleStyle                = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Align(lipgloss.Center)
+	selectedStyleDark         = lipgloss.NewStyle().Background(lipgloss.Color(selectedRowBackgroundDark))
+	selectedStyleLight        = lipgloss.NewStyle().Background(lipgloss.Color(selectedRowBackgroundLight))
+	toastStyle                = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
+	dividerStyle              = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	scrollbarTrackStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	scrollbarThumbStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("62"))
+	helpKeyStyle              = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255"))
+	helpLabelStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	gitInfoBranchStyleDark    = lipgloss.NewStyle().Inline(true).Foreground(lipgloss.Color(gitInfoBranchForeground))
+	gitInfoBranchStyleLight   = lipgloss.NewStyle().Inline(true).Foreground(lipgloss.Color(gitInfoBranchForegroundLight))
+	gitInfoWorktreeStyleDark  = lipgloss.NewStyle().Inline(true).Foreground(lipgloss.Color(gitInfoWorktreeForeground))
+	gitInfoWorktreeStyleLight = lipgloss.NewStyle().Inline(true).Foreground(lipgloss.Color(gitInfoWorktreeForegroundLight))
 )
 
 func selectedStyle(lightBackground bool) lipgloss.Style {
@@ -36,6 +40,20 @@ func selectedStyle(lightBackground bool) lipgloss.Style {
 		return selectedStyleLight
 	}
 	return selectedStyleDark
+}
+
+func gitInfoBranchStyle(lightBackground bool) lipgloss.Style {
+	if lightBackground {
+		return gitInfoBranchStyleLight
+	}
+	return gitInfoBranchStyleDark
+}
+
+func gitInfoWorktreeStyle(lightBackground bool) lipgloss.Style {
+	if lightBackground {
+		return gitInfoWorktreeStyleLight
+	}
+	return gitInfoWorktreeStyleDark
 }
 
 const (
@@ -58,6 +76,12 @@ const (
 	mouseWheelScrollLines      = 3
 	stickyRootHeight           = 1
 	reloadToastText            = "Reloaded"
+	// Muted neutral grays for the git info row: clearly weaker than the
+	// tree content's default foreground, lighter than the help label.
+	gitInfoBranchForeground        = "245"
+	gitInfoBranchForegroundLight   = "244"
+	gitInfoWorktreeForeground      = "243"
+	gitInfoWorktreeForegroundLight = "246"
 )
 
 // Model owns UI state and delegates all filesystem work to commands that read
@@ -246,7 +270,8 @@ func (m *Model) View() tea.View {
 	headerHeight, treeHeight, footerHeight := layoutHeights(m.height)
 	topDividerHeight := headerDividerHeight(m.height)
 	bottomDividerHeight := footerDividerHeight(m.height)
-	lines := make([]string, 0, headerHeight+topDividerHeight+treeHeight+bottomDividerHeight+footerHeight)
+	gitInfoRowHeight := gitInfoHeight(m.height)
+	lines := make([]string, 0, headerHeight+topDividerHeight+treeHeight+bottomDividerHeight+gitInfoRowHeight+footerHeight)
 	if headerHeight > 0 {
 		lines = append(lines, m.renderStyledLine("Herdr File Viewer", titleStyle))
 	}
@@ -258,6 +283,9 @@ func (m *Model) View() tea.View {
 	}
 	if bottomDividerHeight > 0 {
 		lines = append(lines, m.renderDivider())
+	}
+	if gitInfoRowHeight > 0 {
+		lines = append(lines, m.renderGitInfoRow())
 	}
 	if footerHeight > 0 {
 		lines = append(lines, m.renderFooter())
@@ -402,6 +430,8 @@ func (m *Model) treeStartY() int {
 	return headerHeight + headerDividerHeight(m.height)
 }
 
+// scrollableStartY returns the first row of the scrollable tree region,
+// directly below the sticky root row.
 func (m *Model) scrollableStartY() int {
 	return m.treeStartY() + stickyRootHeight
 }
@@ -420,6 +450,9 @@ func (m *Model) scrollableViewportHeight() int {
 	return treeHeight - stickyRootHeight
 }
 
+// scrollableRowCount is the number of scrollable visibleRows: every row after
+// the root. The Git info line is rendered, not a visibleRows element, so it
+// never shrinks the index-side count even though it occupies a screen row.
 func (m *Model) scrollableRowCount() int {
 	if len(m.visibleRows) <= stickyRootHeight {
 		return 0
@@ -823,13 +856,14 @@ func (m *Model) renderTree(treeHeight int) []string {
 		lines[0] = leftPadding + m.renderRowWidth(0, m.visibleRows[0], contentWidth) + blankScrollbarCell
 	}
 
-	scrollHeight := treeHeight - stickyRootHeight
+	sticky := stickyRootHeight
+	scrollHeight := treeHeight - sticky
 	if scrollHeight <= 0 {
 		return lines
 	}
 	metrics := newScrollbarMetrics(scrollHeight, m.scrollableRowCount(), m.offset)
-	for rowIndex := stickyRootHeight; rowIndex < len(lines); rowIndex++ {
-		index := stickyRootHeight + metrics.offset + rowIndex - stickyRootHeight
+	for rowIndex := sticky; rowIndex < len(lines); rowIndex++ {
+		index := stickyRootHeight + metrics.offset + rowIndex - sticky
 		line := strings.Repeat(" ", contentWidth)
 		if index >= stickyRootHeight && index < len(m.visibleRows) {
 			line = m.renderRowWidth(index, m.visibleRows[index], contentWidth)
@@ -838,9 +872,49 @@ func (m *Model) renderTree(treeHeight int) []string {
 			// scrollbar stays in the same column.
 			line += "  "
 		}
-		lines[rowIndex] = leftPadding + line + m.renderScrollbarCell(rowIndex-stickyRootHeight, metrics)
+		lines[rowIndex] = leftPadding + line + m.renderScrollbarCell(rowIndex-sticky, metrics)
 	}
 	return lines
+}
+
+// renderGitInfoRow paints the dedicated Git info row between the bottom
+// divider and the footer. The row is reserved whenever the height budget
+// allows, whether or not the directory is a repository, so the tree region
+// and its coordinates never depend on Git state; non-Git, failed, and
+// still-loading snapshots render the row blank. It lives outside the tree
+// region, so hit-testing, scrolling, and the scrollbar never touch it.
+func (m *Model) renderGitInfoRow() string {
+	contentWidth := max(0, m.width-m.contentLeftPadding())
+	line := strings.Repeat(" ", m.contentLeftPadding()) + m.renderGitInfoLine(contentWidth)
+	return renderStyledLineAt(line, lipgloss.NewStyle(), m.width)
+}
+
+// renderGitInfoLine paints the branch and linked-worktree segments. The
+// icons keep their palette colors; the names use the muted git-info gray
+// so the row reads as secondary to the tree content while staying
+// readable on both background palettes. It returns an empty string for
+// non-Git, failed, and still-loading snapshots, which the caller renders
+// as a blank reserved row.
+func (m *Model) renderGitInfoLine(width int) string {
+	if width <= 0 || m.tree == nil {
+		return ""
+	}
+	info, ok := m.tree.WorktreeInfo()
+	if !ok {
+		return ""
+	}
+	parts := make([]string, 0, 2)
+	branch := info.Branch
+	if branch == "" {
+		branch = info.ShortSHA
+	}
+	if branch != "" {
+		parts = append(parts, iconStyle(branchTreeIcon).Render(branchTreeIcon)+" "+gitInfoBranchStyle(m.lightBackground).Render(sanitizeDisplay(branch)))
+	}
+	if info.IsLinked && info.RepoName != "" {
+		parts = append(parts, iconStyle(worktreeTreeIcon).Render(worktreeTreeIcon)+" "+gitInfoWorktreeStyle(m.lightBackground).Render(sanitizeDisplay(info.RepoName)))
+	}
+	return truncateToWidth(strings.Join(parts, "   "), width)
 }
 
 func (m *Model) renderRowWidth(index int, row browser.VisibleRow, width int) string {
@@ -1098,7 +1172,7 @@ func layoutHeights(height int) (header, tree, footer int) {
 		return header, 0, 0
 	}
 	footer = 1
-	tree = height - header - headerDividerHeight(height) - footerDividerHeight(height) - footer
+	tree = height - header - headerDividerHeight(height) - footerDividerHeight(height) - gitInfoHeight(height) - footer
 	return header, tree, footer
 }
 
@@ -1111,6 +1185,17 @@ func headerDividerHeight(height int) int {
 
 func footerDividerHeight(height int) int {
 	if nonNegative(height) >= 5 {
+		return 1
+	}
+	return 0
+}
+
+// gitInfoHeight is 1 when a dedicated Git info row fits below the divider
+// stack without displacing the sticky root row: the row appears only after
+// header, top divider, tree, bottom divider, and footer are all satisfied,
+// mirroring the divider thresholds.
+func gitInfoHeight(height int) int {
+	if nonNegative(height) >= 6 {
 		return 1
 	}
 	return 0

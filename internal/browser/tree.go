@@ -28,14 +28,16 @@ type LoadRequest struct {
 // LoadResult is the data returned by a directory read. Err is retained on the
 // target node by ApplyLoad and is intentionally recoverable.
 type LoadResult struct {
-	Node         *Node
-	Path         string
-	Entries      []filesystem.Entry
-	Err          error
-	GitStatus    GitStatusResult
-	HasGitStatus bool
-	GitIgnore    GitIgnoreResult
-	HasGitIgnore bool
+	Node            *Node
+	Path            string
+	Entries         []filesystem.Entry
+	Err             error
+	GitStatus       GitStatusResult
+	HasGitStatus    bool
+	GitIgnore       GitIgnoreResult
+	HasGitIgnore    bool
+	WorktreeInfo    WorktreeInfoResult
+	HasWorktreeInfo bool
 }
 
 // GitStatus is the status type exposed by the browser layer.
@@ -56,6 +58,12 @@ type GitStatusResult struct {
 	Err     error
 }
 
+// WorktreeInfoResult is the result of one Git branch/worktree snapshot.
+type WorktreeInfoResult struct {
+	Info filesystem.WorktreeInfo
+	Err  error
+}
+
 // GitIgnoreResult is the result of one .gitignore match pass. Candidates are
 // the paths that were tested (relative to the root); Ignored is the subset
 // that matched, so callers can cache both negative and positive results.
@@ -67,14 +75,17 @@ type GitIgnoreResult struct {
 
 // Tree owns the lazy node graph and its flattened-row cache.
 type Tree struct {
-	fileSystem      filesystem.FileSystem
-	root            *Node
-	visible         VisibleRows
-	gitStatusLoaded bool
-	gitStatuses     map[string]GitStatus
-	gitRepository   bool
-	gitIgnoreLoaded bool
-	gitIgnore       map[string]bool
+	fileSystem        filesystem.FileSystem
+	root              *Node
+	visible           VisibleRows
+	gitStatusLoaded   bool
+	gitStatuses       map[string]GitStatus
+	gitRepository     bool
+	gitIgnoreLoaded   bool
+	gitIgnore         map[string]bool
+	gitWorktreeLoaded bool
+	gitWorktreeInfo   filesystem.WorktreeInfo
+	gitWorktreeErr    error
 }
 
 // NewTree creates a tree without reading rootPath or any of its descendants.
@@ -228,8 +239,8 @@ func (t *Tree) readDirectory(request LoadRequest) LoadResult {
 		result.GitStatus = t.ReadGitStatus()
 		result.HasGitStatus = true
 		// A failed snapshot proves there is no usable working tree, so the
-		// check-ignore subprocess would only fail again; skip it and let
-		// ApplyLoad clear the cache.
+		// check-ignore and worktree subprocesses would only fail again; skip
+		// them and let ApplyLoad clear the caches.
 		if result.GitStatus.Err != nil {
 			result.GitIgnore = GitIgnoreResult{}
 			result.HasGitIgnore = true
@@ -244,6 +255,14 @@ func (t *Tree) readDirectory(request LoadRequest) LoadResult {
 		}
 		result.GitIgnore = t.ReadGitIgnore(candidates)
 		result.HasGitIgnore = true
+		// The branch/worktree snapshot is root-level state, refreshed with
+		// the status snapshot on the initial load and every reload. Files
+		// without the capability never mark it present, so a zero result
+		// cannot make the info line visible.
+		if _, ok := t.fileSystem.(filesystem.GitWorktreeReader); ok {
+			result.WorktreeInfo = t.ReadWorktreeInfo()
+			result.HasWorktreeInfo = true
+		}
 	}
 	return result
 }
@@ -261,6 +280,21 @@ func (t *Tree) ReadGitStatus() GitStatusResult {
 	}
 	entries, err := reader.ReadGitStatus(t.root.path)
 	return GitStatusResult{Entries: entries, Err: err}
+}
+
+// ReadWorktreeInfo reads the optional Git branch/worktree capability without
+// mutating the tree. A filesystem without that capability behaves like no
+// info.
+func (t *Tree) ReadWorktreeInfo() WorktreeInfoResult {
+	if t == nil || t.fileSystem == nil || t.root == nil {
+		return WorktreeInfoResult{}
+	}
+	reader, ok := t.fileSystem.(filesystem.GitWorktreeReader)
+	if !ok {
+		return WorktreeInfoResult{}
+	}
+	info, err := reader.ReadWorktreeInfo(t.root.path)
+	return WorktreeInfoResult{Info: info, Err: err}
 }
 
 // ReadGitIgnore runs one batched .gitignore check for the given
@@ -326,6 +360,9 @@ func (t *Tree) ApplyLoad(result LoadResult) bool {
 	}
 	if result.HasGitStatus {
 		t.applyGitStatus(result.GitStatus)
+	}
+	if result.HasWorktreeInfo {
+		t.applyWorktree(result.WorktreeInfo)
 	}
 	if result.HasGitIgnore {
 		t.applyGitIgnore(result.GitIgnore)
@@ -399,6 +436,16 @@ func (t *Tree) GitReady() bool {
 	return t != nil && t.gitRepository
 }
 
+// WorktreeInfo returns the last branch/worktree snapshot. ok is false until
+// the snapshot was applied successfully on a Git-aware filesystem, keeping
+// the sticky info line hidden outside repositories.
+func (t *Tree) WorktreeInfo() (filesystem.WorktreeInfo, bool) {
+	if t == nil || !t.gitWorktreeLoaded || t.gitWorktreeErr != nil {
+		return filesystem.WorktreeInfo{}, false
+	}
+	return t.gitWorktreeInfo, true
+}
+
 // IsIgnored reports whether path matches .gitignore rules. Tracked files
 // never match. Paths that were not present in the last full snapshot inherit
 // the nearest tested ancestor; the next snapshot settles them exactly.
@@ -455,6 +502,11 @@ func (t *Tree) applyGitStatus(result GitStatusResult) {
 	clear(t.gitStatuses)
 	if result.Err != nil || t.root == nil {
 		t.gitRepository = false
+		// A failed status proves the working tree is unusable, so the
+		// branch/worktree snapshot is stale too; clear it with the status
+		// snapshot or the info line would outlive the repository.
+		t.gitWorktreeLoaded = false
+		t.gitWorktreeErr = nil
 		return
 	}
 	t.gitRepository = true
@@ -476,6 +528,12 @@ func (t *Tree) applyGitStatus(result GitStatusResult) {
 			path = parent
 		}
 	}
+}
+
+func (t *Tree) applyWorktree(result WorktreeInfoResult) {
+	t.gitWorktreeLoaded = true
+	t.gitWorktreeInfo = result.Info
+	t.gitWorktreeErr = result.Err
 }
 
 func (t *Tree) statusPath(path string) (string, bool) {

@@ -32,6 +32,8 @@ const (
 	expandedTreeIcon  = ""
 	rootTreeIcon      = ""
 	symlinkTreeIcon   = ""
+	branchTreeIcon    = "\uf418"     // nf-oct-git_branch
+	worktreeTreeIcon  = "\U000f0645" // nf-md-file_tree
 )
 
 // Special names take precedence over extension matches.
@@ -151,6 +153,8 @@ func newIconColorPalette() map[string]color.Color {
 		palette[icons.directoryOpen] = directoryColor
 	}
 	palette[symlinkTreeIcon] = lipgloss.Color("81")
+	palette[branchTreeIcon] = lipgloss.Color("215")
+	palette[worktreeTreeIcon] = lipgloss.Color("75")
 	return palette
 }
 
