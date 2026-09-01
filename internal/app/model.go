@@ -246,7 +246,8 @@ func (m *Model) View() tea.View {
 	headerHeight, treeHeight, footerHeight := layoutHeights(m.height)
 	topDividerHeight := headerDividerHeight(m.height)
 	bottomDividerHeight := footerDividerHeight(m.height)
-	lines := make([]string, 0, headerHeight+topDividerHeight+treeHeight+bottomDividerHeight+footerHeight)
+	gitInfoRowHeight := gitInfoHeight(m.height)
+	lines := make([]string, 0, headerHeight+topDividerHeight+treeHeight+bottomDividerHeight+gitInfoRowHeight+footerHeight)
 	if headerHeight > 0 {
 		lines = append(lines, m.renderStyledLine("Herdr File Viewer", titleStyle))
 	}
@@ -258,6 +259,9 @@ func (m *Model) View() tea.View {
 	}
 	if bottomDividerHeight > 0 {
 		lines = append(lines, m.renderDivider())
+	}
+	if gitInfoRowHeight > 0 {
+		lines = append(lines, m.renderGitInfoRow())
 	}
 	if footerHeight > 0 {
 		lines = append(lines, m.renderFooter())
@@ -402,10 +406,10 @@ func (m *Model) treeStartY() int {
 	return headerHeight + headerDividerHeight(m.height)
 }
 
-// scrollableStartY returns the first row of the scrollable tree region, below
-// the sticky root row and the Git info line when it is visible.
+// scrollableStartY returns the first row of the scrollable tree region,
+// directly below the sticky root row.
 func (m *Model) scrollableStartY() int {
-	return m.treeStartY() + m.stickyRowCount()
+	return m.treeStartY() + stickyRootHeight
 }
 
 func (m *Model) isScrollableTreeY(y int) bool {
@@ -414,31 +418,12 @@ func (m *Model) isScrollableTreeY(y int) bool {
 	return scrollHeight > 0 && y >= startY && y < startY+scrollHeight
 }
 
-// stickyRowCount is the number of fixed rows above the scrollable region:
-// the root row, plus the Git info line when the last snapshot succeeded.
-func (m *Model) stickyRowCount() int {
-	if m != nil && m.gitInfoVisible() {
-		return stickyRootHeight + 1
-	}
-	return stickyRootHeight
-}
-
-// gitInfoVisible reports whether the sticky Git info line is rendered, which
-// requires a successful branch/worktree snapshot on a Git-aware filesystem.
-func (m *Model) gitInfoVisible() bool {
-	if m == nil || m.tree == nil {
-		return false
-	}
-	_, ok := m.tree.WorktreeInfo()
-	return ok
-}
-
 func (m *Model) scrollableViewportHeight() int {
 	_, treeHeight, _ := layoutHeights(m.height)
-	if treeHeight <= m.stickyRowCount() || len(m.visibleRows) == 0 {
+	if treeHeight <= stickyRootHeight || len(m.visibleRows) == 0 {
 		return 0
 	}
-	return treeHeight - m.stickyRowCount()
+	return treeHeight - stickyRootHeight
 }
 
 // scrollableRowCount is the number of scrollable visibleRows: every row after
@@ -466,12 +451,11 @@ func (m *Model) rowIndexAtY(y int) (int, bool) {
 	if localY == 0 && len(m.visibleRows) > 0 {
 		return 0, true
 	}
-	sticky := m.stickyRowCount()
-	if localY < sticky || localY >= sticky+m.scrollableViewportHeight() {
+	if localY < stickyRootHeight || localY >= stickyRootHeight+m.scrollableViewportHeight() {
 		return 0, false
 	}
 
-	index := stickyRootHeight + m.offset + localY - sticky
+	index := stickyRootHeight + m.offset + localY - stickyRootHeight
 	if index < 0 || index >= len(m.visibleRows) {
 		return 0, false
 	}
@@ -847,27 +831,14 @@ func (m *Model) renderTree(treeHeight int) []string {
 	if len(m.visibleRows) > 0 {
 		lines[0] = leftPadding + m.renderRowWidth(0, m.visibleRows[0], contentWidth) + blankScrollbarCell
 	}
-	if m.gitInfoVisible() && treeHeight > stickyRootHeight {
-		line := m.renderGitInfoLine(contentWidth)
-		if m.letterColumnReserved() && contentWidth > 0 {
-			// Keep the reserved gap+letter cells so the scrollbar stays in
-			// the same column as the status rows below; the tiny-width rows
-			// render no letter column either.
-			line += "  "
-		}
-		lines[stickyRootHeight] = leftPadding + line + blankScrollbarCell
-	}
 
-	sticky := m.stickyRowCount()
+	sticky := stickyRootHeight
 	scrollHeight := treeHeight - sticky
 	if scrollHeight <= 0 {
 		return lines
 	}
 	metrics := newScrollbarMetrics(scrollHeight, m.scrollableRowCount(), m.offset)
 	for rowIndex := sticky; rowIndex < len(lines); rowIndex++ {
-		// The screen row is offset by sticky (root + info line), but the
-		// info line is not a visibleRows element, so the row maps to the
-		// index that counts only the sticky root row.
 		index := stickyRootHeight + metrics.offset + rowIndex - sticky
 		line := strings.Repeat(" ", contentWidth)
 		if index >= stickyRootHeight && index < len(m.visibleRows) {
@@ -882,9 +853,26 @@ func (m *Model) renderTree(treeHeight int) []string {
 	return lines
 }
 
-// renderGitInfoLine paints the sticky branch and linked-worktree segments.
-// The icons keep their palette colors; the text follows the default
-// foreground so the line stays readable on both background palettes.
+// divider and the footer. The row is reserved whenever the height budget
+// allows, whether or not the directory is a repository, so the tree region
+// and its coordinates never depend on Git state; non-Git, failed, and
+// renderGitInfoRow paints the dedicated Git info row between the bottom
+// divider and the footer. The row is reserved whenever the height budget
+// allows, whether or not the directory is a repository, so the tree region
+// and its coordinates never depend on Git state; non-Git, failed, and
+// still-loading snapshots render the row blank. It lives outside the tree
+// region, so hit-testing, scrolling, and the scrollbar never touch it.
+func (m *Model) renderGitInfoRow() string {
+	contentWidth := max(0, m.width-m.contentLeftPadding())
+	line := strings.Repeat(" ", m.contentLeftPadding()) + m.renderGitInfoLine(contentWidth)
+	return renderStyledLineAt(line, lipgloss.NewStyle(), m.width)
+}
+
+// renderGitInfoLine paints the branch and linked-worktree segments. The
+// icons keep their palette colors; the text follows the default foreground
+// so the line stays readable on both background palettes. It returns an
+// empty string for non-Git, failed, and still-loading snapshots, which the
+// caller renders as a blank reserved row.
 func (m *Model) renderGitInfoLine(width int) string {
 	if width <= 0 || m.tree == nil {
 		return ""
@@ -1162,7 +1150,7 @@ func layoutHeights(height int) (header, tree, footer int) {
 		return header, 0, 0
 	}
 	footer = 1
-	tree = height - header - headerDividerHeight(height) - footerDividerHeight(height) - footer
+	tree = height - header - headerDividerHeight(height) - footerDividerHeight(height) - gitInfoHeight(height) - footer
 	return header, tree, footer
 }
 
@@ -1175,6 +1163,17 @@ func headerDividerHeight(height int) int {
 
 func footerDividerHeight(height int) int {
 	if nonNegative(height) >= 5 {
+		return 1
+	}
+	return 0
+}
+
+// gitInfoHeight is 1 when a dedicated Git info row fits below the divider
+// stack without displacing the sticky root row: the row appears only after
+// header, top divider, tree, bottom divider, and footer are all satisfied,
+// mirroring the divider thresholds.
+func gitInfoHeight(height int) int {
+	if nonNegative(height) >= 6 {
 		return 1
 	}
 	return 0
