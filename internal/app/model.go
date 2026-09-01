@@ -20,15 +20,19 @@ import (
 var toastDisplayDuration = 3 * time.Second
 
 var (
-	titleStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Align(lipgloss.Center)
-	selectedStyleDark   = lipgloss.NewStyle().Background(lipgloss.Color(selectedRowBackgroundDark))
-	selectedStyleLight  = lipgloss.NewStyle().Background(lipgloss.Color(selectedRowBackgroundLight))
-	toastStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
-	dividerStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	scrollbarTrackStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	scrollbarThumbStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("62"))
-	helpKeyStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255"))
-	helpLabelStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	titleStyle                = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Align(lipgloss.Center)
+	selectedStyleDark         = lipgloss.NewStyle().Background(lipgloss.Color(selectedRowBackgroundDark))
+	selectedStyleLight        = lipgloss.NewStyle().Background(lipgloss.Color(selectedRowBackgroundLight))
+	toastStyle                = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
+	dividerStyle              = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	scrollbarTrackStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	scrollbarThumbStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("62"))
+	helpKeyStyle              = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255"))
+	helpLabelStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	gitInfoBranchStyleDark    = lipgloss.NewStyle().Inline(true).Foreground(lipgloss.Color(gitInfoBranchForeground))
+	gitInfoBranchStyleLight   = lipgloss.NewStyle().Inline(true).Foreground(lipgloss.Color(gitInfoBranchForegroundLight))
+	gitInfoWorktreeStyleDark  = lipgloss.NewStyle().Inline(true).Foreground(lipgloss.Color(gitInfoWorktreeForeground))
+	gitInfoWorktreeStyleLight = lipgloss.NewStyle().Inline(true).Foreground(lipgloss.Color(gitInfoWorktreeForegroundLight))
 )
 
 func selectedStyle(lightBackground bool) lipgloss.Style {
@@ -36,6 +40,20 @@ func selectedStyle(lightBackground bool) lipgloss.Style {
 		return selectedStyleLight
 	}
 	return selectedStyleDark
+}
+
+func gitInfoBranchStyle(lightBackground bool) lipgloss.Style {
+	if lightBackground {
+		return gitInfoBranchStyleLight
+	}
+	return gitInfoBranchStyleDark
+}
+
+func gitInfoWorktreeStyle(lightBackground bool) lipgloss.Style {
+	if lightBackground {
+		return gitInfoWorktreeStyleLight
+	}
+	return gitInfoWorktreeStyleDark
 }
 
 const (
@@ -58,6 +76,12 @@ const (
 	mouseWheelScrollLines      = 3
 	stickyRootHeight           = 1
 	reloadToastText            = "Reloaded"
+	// Muted neutral grays for the git info row: clearly weaker than the
+	// tree content's default foreground, lighter than the help label.
+	gitInfoBranchForeground        = "245"
+	gitInfoBranchForegroundLight   = "244"
+	gitInfoWorktreeForeground      = "243"
+	gitInfoWorktreeForegroundLight = "246"
 )
 
 // Model owns UI state and delegates all filesystem work to commands that read
@@ -866,10 +890,11 @@ func (m *Model) renderGitInfoRow() string {
 }
 
 // renderGitInfoLine paints the branch and linked-worktree segments. The
-// icons keep their palette colors; the text follows the default foreground
-// so the line stays readable on both background palettes. It returns an
-// empty string for non-Git, failed, and still-loading snapshots, which the
-// caller renders as a blank reserved row.
+// icons keep their palette colors; the names use the muted git-info gray
+// so the row reads as secondary to the tree content while staying
+// readable on both background palettes. It returns an empty string for
+// non-Git, failed, and still-loading snapshots, which the caller renders
+// as a blank reserved row.
 func (m *Model) renderGitInfoLine(width int) string {
 	if width <= 0 || m.tree == nil {
 		return ""
@@ -884,10 +909,10 @@ func (m *Model) renderGitInfoLine(width int) string {
 		branch = info.ShortSHA
 	}
 	if branch != "" {
-		parts = append(parts, iconStyle(branchTreeIcon).Render(branchTreeIcon)+" "+sanitizeDisplay(branch))
+		parts = append(parts, iconStyle(branchTreeIcon).Render(branchTreeIcon)+" "+gitInfoBranchStyle(m.lightBackground).Render(sanitizeDisplay(branch)))
 	}
 	if info.IsLinked && info.RepoName != "" {
-		parts = append(parts, iconStyle(worktreeTreeIcon).Render(worktreeTreeIcon)+" "+sanitizeDisplay(info.RepoName))
+		parts = append(parts, iconStyle(worktreeTreeIcon).Render(worktreeTreeIcon)+" "+gitInfoWorktreeStyle(m.lightBackground).Render(sanitizeDisplay(info.RepoName)))
 	}
 	return truncateToWidth(strings.Join(parts, "   "), width)
 }

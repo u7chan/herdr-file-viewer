@@ -2,6 +2,8 @@ package app
 
 import (
 	"errors"
+	"image/color"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -49,6 +51,82 @@ func TestGitInfoRowRendersBranchAndLinkedWorktreeAboveFooter(t *testing.T) {
 	if strings.Contains(lines[startY], branchTreeIcon) {
 		t.Fatalf("root row = %q, must not carry the git info row", lines[startY])
 	}
+}
+
+func TestGitInfoTextForegroundRoles(t *testing.T) {
+	tests := []struct {
+		name  string
+		style lipgloss.Style
+		want  color.Color
+	}{
+		{name: "branch dark", style: gitInfoBranchStyle(false), want: lipgloss.Color(gitInfoBranchForeground)},
+		{name: "branch light", style: gitInfoBranchStyle(true), want: lipgloss.Color(gitInfoBranchForegroundLight)},
+		{name: "worktree dark", style: gitInfoWorktreeStyle(false), want: lipgloss.Color(gitInfoWorktreeForeground)},
+		{name: "worktree light", style: gitInfoWorktreeStyle(true), want: lipgloss.Color(gitInfoWorktreeForegroundLight)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.style.GetForeground(); got != test.want {
+				t.Fatalf("%s foreground = %v, want %v", test.name, got, test.want)
+			}
+		})
+	}
+	// The worktree name must never read stronger than the branch name.
+	// On a dark palette a lower ANSI gray index is weaker (darker); on a
+	// light palette a higher index is weaker (lighter).
+	branchDark := ansiIndex(t, gitInfoBranchForeground)
+	worktreeDark := ansiIndex(t, gitInfoWorktreeForeground)
+	if worktreeDark >= branchDark {
+		t.Fatalf("dark worktree gray %d must be weaker than branch gray %d", worktreeDark, branchDark)
+	}
+	branchLight := ansiIndex(t, gitInfoBranchForegroundLight)
+	worktreeLight := ansiIndex(t, gitInfoWorktreeForegroundLight)
+	if worktreeLight <= branchLight {
+		t.Fatalf("light worktree gray %d must be weaker than branch gray %d", worktreeLight, branchLight)
+	}
+}
+
+func TestGitInfoLineAppliesMutedGrayRolesAndKeepsIconPalette(t *testing.T) {
+	root := t.TempDir()
+	fake := newWorktreeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+	fake.worktree = filesystem.WorktreeInfo{Branch: "feature", RepoName: "agent-harness", IsLinked: true}
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+
+	line := model.renderGitInfoLine(80)
+	for _, segment := range []string{
+		iconStyle(branchTreeIcon).Render(branchTreeIcon),
+		gitInfoBranchStyle(false).Render("feature"),
+		iconStyle(worktreeTreeIcon).Render(worktreeTreeIcon),
+		gitInfoWorktreeStyle(false).Render("agent-harness"),
+	} {
+		if !strings.Contains(line, segment) {
+			t.Fatalf("dark git info line = %q, want segment %q", line, segment)
+		}
+	}
+
+	model.Update(tea.BackgroundColorMsg{Color: color.RGBA{R: 255, G: 255, B: 255, A: 255}})
+	line = model.renderGitInfoLine(80)
+	for _, segment := range []string{
+		gitInfoBranchStyle(true).Render("feature"),
+		gitInfoWorktreeStyle(true).Render("agent-harness"),
+	} {
+		if !strings.Contains(line, segment) {
+			t.Fatalf("light git info line = %q, want segment %q", line, segment)
+		}
+	}
+}
+
+// ansiIndex parses an ANSI 256 color code for relative-strength
+// comparisons between the branch and worktree grays.
+func ansiIndex(t *testing.T, code string) int {
+	t.Helper()
+	index, err := strconv.Atoi(code)
+	if err != nil {
+		t.Fatalf("ANSI color %q is not numeric: %v", code, err)
+	}
+	return index
 }
 
 func TestGitInfoRowShowsShortSHAWhenDetached(t *testing.T) {
