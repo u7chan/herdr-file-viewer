@@ -853,9 +853,6 @@ func (m *Model) renderTree(treeHeight int) []string {
 	return lines
 }
 
-// divider and the footer. The row is reserved whenever the height budget
-// allows, whether or not the directory is a repository, so the tree region
-// and its coordinates never depend on Git state; non-Git, failed, and
 // renderGitInfoRow paints the dedicated Git info row between the bottom
 // divider and the footer. The row is reserved whenever the height budget
 // allows, whether or not the directory is a repository, so the tree region
