@@ -263,8 +263,8 @@ mouse column agree with the drawing). With `RUNEWIDTH_EASTASIAN=1` the app
 counts Ambiguous characters as two cells and matches the drawn width; without
 it the app counts one cell and the rest of the line shifts one column on
 screen. Measured with lipgloss v2.0.6 / x/ansi v0.11.8: `①`(U+2460 EAW=A)
-1→2, `※`/`×`/`°`/`α` 1→2, `・`(U+30FB) 2→2, `未`(U+672A EAW=W) 2→2, `A` 1→1
-(unset → set).
+1→2, `※`/`×`/`°`/`α` 1→2, `・`(U+30FB EAW=W) 2→2, `未`(U+672A EAW=W)
+2→2, `A` 1→1 (unset → set).
 
 ## Benchmarks
 
