@@ -119,6 +119,46 @@ func TestTreeWithoutWorktreeCapabilityNeverShowsInfo(t *testing.T) {
 	}
 }
 
+func TestTreeGitStatusFailureClearsTheWorktreeSnapshot(t *testing.T) {
+	root := t.TempDir()
+	fake := &worktreeFileSystem{gitStatusFileSystem: newGitStatusFileSystem()}
+	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+	fake.worktree = filesystem.WorktreeInfo{Branch: "feature", IsLinked: true}
+
+	tree := mustGitStatusTree(t, root, fake)
+	rootRequest, ok := tree.Expand(tree.Root())
+	if !ok {
+		t.Fatal("Expand(root) started no load")
+	}
+	if !tree.ApplyLoad(tree.ReadInitial(rootRequest)) {
+		t.Fatal("ApplyLoad() rejected initial result")
+	}
+	if _, ok := tree.WorktreeInfo(); !ok {
+		t.Fatal("WorktreeInfo() hidden after a successful initial load")
+	}
+
+	fake.statusError = errors.New("not a git repository anymore")
+	requests := tree.Reload()
+	if len(requests) != 1 {
+		t.Fatalf("Reload() requests = %d, want 1", len(requests))
+	}
+	for _, reloadRequest := range requests {
+		if !tree.ApplyLoad(tree.ReadReload(reloadRequest)) {
+			t.Fatal("ApplyLoad() rejected reload result")
+		}
+	}
+
+	if _, ok := tree.WorktreeInfo(); ok {
+		t.Fatal("WorktreeInfo() visible after a failed status reload")
+	}
+	if tree.GitReady() {
+		t.Fatal("GitReady() true after a failed status reload")
+	}
+	if got := tree.GitStatusForPath(root); got != GitStatusNone {
+		t.Fatalf("GitStatusForPath() after failed reload = %v, want none", got)
+	}
+}
+
 func TestLazyDirectoryReadsKeepTheRootWorktreeSnapshot(t *testing.T) {
 	root := t.TempDir()
 	directoryPath := filepath.Join(root, "directory")

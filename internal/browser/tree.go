@@ -502,6 +502,11 @@ func (t *Tree) applyGitStatus(result GitStatusResult) {
 	clear(t.gitStatuses)
 	if result.Err != nil || t.root == nil {
 		t.gitRepository = false
+		// A failed status proves the working tree is unusable, so the
+		// branch/worktree snapshot is stale too; clear it with the status
+		// snapshot or the info line would outlive the repository.
+		t.gitWorktreeLoaded = false
+		t.gitWorktreeErr = nil
 		return
 	}
 	t.gitRepository = true

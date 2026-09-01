@@ -441,11 +441,14 @@ func (m *Model) scrollableViewportHeight() int {
 	return treeHeight - m.stickyRowCount()
 }
 
+// scrollableRowCount is the number of scrollable visibleRows: every row after
+// the root. The Git info line is rendered, not a visibleRows element, so it
+// never shrinks the index-side count even though it occupies a screen row.
 func (m *Model) scrollableRowCount() int {
-	if len(m.visibleRows) <= m.stickyRowCount() {
+	if len(m.visibleRows) <= stickyRootHeight {
 		return 0
 	}
-	return len(m.visibleRows) - m.stickyRowCount()
+	return len(m.visibleRows) - stickyRootHeight
 }
 
 func (m *Model) rowIndexAtY(y int) (int, bool) {
@@ -468,7 +471,7 @@ func (m *Model) rowIndexAtY(y int) (int, bool) {
 		return 0, false
 	}
 
-	index := m.offset + localY
+	index := stickyRootHeight + m.offset + localY - sticky
 	if index < 0 || index >= len(m.visibleRows) {
 		return 0, false
 	}
@@ -768,11 +771,10 @@ func (m *Model) keepSelectionVisible() {
 		return
 	}
 	m.offset = m.clampOffset(m.offset, scrollHeight)
-	sticky := m.stickyRowCount()
 	if m.selected == 0 {
 		return
 	}
-	selectedOffset := m.selected - sticky
+	selectedOffset := m.selected - stickyRootHeight
 	if selectedOffset < m.offset {
 		m.offset = selectedOffset
 	}
@@ -800,16 +802,15 @@ func (m *Model) clampSelectionToViewport() {
 		return
 	}
 	m.offset = m.clampOffset(m.offset, scrollHeight)
-	sticky := m.stickyRowCount()
 	if m.selected == 0 {
 		return
 	}
-	selectedOffset := m.selected - sticky
+	selectedOffset := m.selected - stickyRootHeight
 	if selectedOffset < m.offset {
-		m.selected = m.offset + sticky
+		m.selected = m.offset + stickyRootHeight
 	}
 	if selectedOffset >= m.offset+scrollHeight {
-		m.selected = m.offset + scrollHeight - 1 + sticky
+		m.selected = m.offset + scrollHeight - 1 + stickyRootHeight
 	}
 	if m.selected >= len(m.visibleRows) {
 		m.selected = len(m.visibleRows) - 1
@@ -864,9 +865,12 @@ func (m *Model) renderTree(treeHeight int) []string {
 	}
 	metrics := newScrollbarMetrics(scrollHeight, m.scrollableRowCount(), m.offset)
 	for rowIndex := sticky; rowIndex < len(lines); rowIndex++ {
-		index := metrics.offset + rowIndex
+		// The screen row is offset by sticky (root + info line), but the
+		// info line is not a visibleRows element, so the row maps to the
+		// index that counts only the sticky root row.
+		index := stickyRootHeight + metrics.offset + rowIndex - sticky
 		line := strings.Repeat(" ", contentWidth)
-		if index >= sticky && index < len(m.visibleRows) {
+		if index >= stickyRootHeight && index < len(m.visibleRows) {
 			line = m.renderRowWidth(index, m.visibleRows[index], contentWidth)
 		} else if m.letterColumnReserved() {
 			// Empty padding rows keep the reserved gap+letter cells so the

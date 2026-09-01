@@ -193,8 +193,8 @@ func TestMouseHitTestSkipsTheStickyInfoLine(t *testing.T) {
 	if _, ok := model.rowIndexAtY(startY + stickyRootHeight); ok {
 		t.Fatal("info line hit-test = selectable, want no row")
 	}
-	if index, ok := model.rowIndexAtY(startY + stickyRootHeight + 1); !ok || index != 2 {
-		t.Fatalf("first scroll row hit-test = (%d, %v), want (2, true)", index, ok)
+	if index, ok := model.rowIndexAtY(startY + stickyRootHeight + 1); !ok || index != 1 {
+		t.Fatalf("first scroll row hit-test = (%d, %v), want (1, true)", index, ok)
 	}
 
 	if _, cmd := model.Update(tea.MouseClickMsg{X: 0, Y: startY + stickyRootHeight, Button: tea.MouseLeft}); cmd != nil {
@@ -202,6 +202,91 @@ func TestMouseHitTestSkipsTheStickyInfoLine(t *testing.T) {
 	}
 	if model.selected != 0 {
 		t.Fatalf("info line click selected = %d, want selection unchanged", model.selected)
+	}
+}
+
+func TestStickyInfoLineKeepsFirstChildVisibleAndSelectable(t *testing.T) {
+	root := t.TempDir()
+	fake := newWorktreeFileSystem()
+	fake.set(root, []filesystem.Entry{
+		{Name: "a-file", Mode: 0},
+		{Name: "b-file", Mode: 0},
+	})
+	fake.worktree = filesystem.WorktreeInfo{Branch: "feature", IsLinked: true}
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(teaWindowSize(80, 8))
+
+	startY := model.treeStartY()
+	sticky := model.stickyRowCount()
+	if sticky != stickyRootHeight+1 {
+		t.Fatalf("stickyRowCount() = %d, want %d", sticky, stickyRootHeight+1)
+	}
+	// The info line is not an element of visibleRows, so every child after
+	// the root stays scrollable: two files below root, zero skipped.
+	if got := model.scrollableRowCount(); got != 2 {
+		t.Fatalf("scrollableRowCount() = %d, want 2", got)
+	}
+
+	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
+	firstScrollRow := lines[startY+sticky]
+	if !strings.Contains(firstScrollRow, "a-file") || strings.Contains(firstScrollRow, "b-file") {
+		t.Fatalf("first scroll row = %q, want a-file without b-file", firstScrollRow)
+	}
+
+	if index, ok := model.rowIndexAtY(startY + sticky); !ok || index != 1 {
+		t.Fatalf("first scroll row hit-test = (%d, %v), want (1, true)", index, ok)
+	}
+
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if model.selected != 1 {
+		t.Fatalf("down selected = %d, want 1 (a-file)", model.selected)
+	}
+	lines = strings.Split(ansi.Strip(model.View().Content), "\n")
+	if !strings.Contains(lines[startY+sticky], "a-file") {
+		t.Fatalf("selected row = %q, want a-file highlighted on the first scroll row", lines[startY+sticky])
+	}
+}
+
+func TestReloadWithGitStatusFailureHidesTheInfoLine(t *testing.T) {
+	root := t.TempDir()
+	fake := newWorktreeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
+	fake.worktree = filesystem.WorktreeInfo{Branch: "feature", IsLinked: true}
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(teaWindowSize(80, 8))
+	if got := model.stickyRowCount(); got != stickyRootHeight+1 {
+		t.Fatalf("stickyRowCount() before reload = %d, want %d", got, stickyRootHeight+1)
+	}
+
+	fake.statusErr = errors.New("not a git repository anymore")
+	cmd := model.UpdateKey(tea.KeyPressMsg{Code: 'r'})
+	if cmd == nil {
+		t.Fatal("reload returned nil command")
+	}
+	switch message := cmd().(type) {
+	case browser.LoadResult:
+		model.Update(message)
+	case tea.BatchMsg:
+		for _, reloadCmd := range message {
+			result, ok := reloadCmd().(browser.LoadResult)
+			if !ok {
+				t.Fatalf("reload message = %T, want browser.LoadResult", reloadCmd())
+			}
+			model.Update(result)
+		}
+	default:
+		t.Fatalf("reload message = %T, want browser.LoadResult or tea.BatchMsg", message)
+	}
+
+	if got := model.stickyRowCount(); got != stickyRootHeight {
+		t.Fatalf("stickyRowCount() after failed reload = %d, want %d", got, stickyRootHeight)
+	}
+	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
+	rowBelowRoot := lines[model.treeStartY()+1]
+	if strings.Contains(rowBelowRoot, branchTreeIcon) || strings.Contains(rowBelowRoot, worktreeTreeIcon) {
+		t.Fatalf("row below root after failed reload = %q, want no info line", rowBelowRoot)
 	}
 }
 
