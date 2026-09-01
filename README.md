@@ -158,6 +158,17 @@ files without a matching lexer fall back to plain text. Files larger than 2 MiB
 are cut at the head and end with a `… truncated (2 MiB limit)` marker.
 Markdown is treated as source and highlighted, not rendered.
 
+Cell widths follow the terminal conventions of `lipgloss.Width`: East Asian
+Ambiguous characters (for example `①`, `※`, `×`, `°`, `α`) count as one cell
+by default. CJK terminals (such as WSL2 with a CJK font) draw Ambiguous glyphs
+two cells wide, so every glyph after the first such character drifts one column
+from the app's cell model, shifting clipping, selection highlights, mouse
+columns, wrap positions, and horizontal scrolling. Set
+`RUNEWIDTH_EASTASIAN=1` in the environment of the process that launches the
+pane (shell profile, pane environment, or launcher) to count Ambiguous
+characters as two cells and match such terminals; leave the default unset for
+terminals that draw Ambiguous glyphs one cell wide.
+
 Scrolling in the preview:
 
 - `j` / `k`, `Up` / `Down`, `Ctrl+u` / `Ctrl+d`, `Ctrl+b` / `Ctrl+f`,
@@ -244,6 +255,16 @@ GOTOOLCHAIN=local CGO_ENABLED=0 go build -trimpath ./cmd/herdr-file-viewer
 The CI checks are deterministic; performance observations are not CI failure
 thresholds. Cursor movement is required to avoid filesystem reads and visible
 row rebuilds by invariant rather than by a fixed time limit.
+
+East Asian Ambiguous width smoke (manual, on a CJK terminal such as WSL2 with
+a CJK font): preview a line containing `①` and confirm the glyph after it
+lands in the cell columns the app reports (selection highlight, wrap, and
+mouse column agree with the drawing). With `RUNEWIDTH_EASTASIAN=1` the app
+counts Ambiguous characters as two cells and matches the drawn width; without
+it the app counts one cell and the rest of the line shifts one column on
+screen. Measured with lipgloss v2.0.6 / x/ansi v0.11.8: `①`(U+2460 EAW=A)
+1→2, `※`/`×`/`°`/`α` 1→2, `・`(U+30FB) 2→2, `未`(U+672A EAW=W) 2→2, `A` 1→1
+(unset → set).
 
 ## Benchmarks
 
