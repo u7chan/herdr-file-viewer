@@ -85,6 +85,70 @@ func TestPreviewPositionForMouseClampsPastShortDisplayToLastLine(t *testing.T) {
 	}
 }
 
+func TestPreviewPositionForMouseIgnoresWhitespaceToggle(t *testing.T) {
+	reader := &fakePreviewReader{content: []byte("abcdefghij  klmnopqrst\nsecond line")}
+	model := NewPreviewModel("/abs/ws-mouse.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 24, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	if !model.wrap {
+		t.Fatal("wrap toggle did not enable wrap")
+	}
+	if len(model.displayLines) < 3 {
+		t.Fatalf("setup did not wrap: displayLines = %#v", model.displayLines)
+	}
+
+	contentX := model.contentStartX()
+	bodyStart := model.bodyStartY()
+	coords := []struct{ x, y int }{
+		{x: contentX - 1, y: bodyStart},
+		{x: contentX, y: bodyStart},
+		{x: contentX + 3, y: bodyStart},
+		{x: contentX + 30, y: bodyStart},
+		{x: contentX + 1, y: bodyStart + 1},
+		{x: contentX - 1, y: bodyStart + 1},
+		{x: contentX + 1, y: bodyStart - 3},
+		{x: contentX + 1, y: bodyStart + model.bodyHeight() + 3},
+	}
+	positionsAt := func(clamp bool) []previewPosition {
+		positions := make([]previewPosition, 0, len(coords))
+		for _, coordinate := range coords {
+			if position, ok := model.previewPositionAt(coordinate.x, coordinate.y, clamp); ok {
+				positions = append(positions, position)
+			} else {
+				positions = append(positions, previewPosition{line: -1, col: -1})
+			}
+		}
+		return positions
+	}
+	offNoClamp := positionsAt(false)
+	offClamp := positionsAt(true)
+	if len(offNoClamp) != len(coords) || len(offClamp) != len(coords) {
+		t.Fatalf("position sample sizes = %d/%d, want %d", len(offNoClamp), len(offClamp), len(coords))
+	}
+	distinct := map[previewPosition]struct{}{}
+	for _, position := range offNoClamp {
+		if position.line >= 0 {
+			distinct[position] = struct{}{}
+		}
+	}
+	if len(distinct) < 3 {
+		t.Fatalf("sample too uniform: %#v", offNoClamp)
+	}
+
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 's', Text: "s"})
+	if !model.showWhitespace {
+		t.Fatal("whitespace toggle did not enable display")
+	}
+	if on := positionsAt(false); !reflect.DeepEqual(on, offNoClamp) {
+		t.Fatalf("whitespace ON unclamped positions = %#v, want %#v", on, offNoClamp)
+	}
+	if on := positionsAt(true); !reflect.DeepEqual(on, offClamp) {
+		t.Fatalf("whitespace ON clamped positions = %#v, want %#v", on, offClamp)
+	}
+}
+
 func TestPreviewSelectionSpansCoverSingleAndMultipleLines(t *testing.T) {
 	line := previewLine{text: "abcdef", origin: 0}
 	selection := previewSelection{
@@ -204,6 +268,36 @@ func TestExtractSelectionJoinsOriginalLines(t *testing.T) {
 	}
 	if got, want := extractSelection(lines, selection), "rst\nsecond\nthi"; got != want {
 		t.Fatalf("extractSelection() = %q, want %q", got, want)
+	}
+}
+
+func TestExtractSelectionIsByteIdenticalAcrossWhitespaceToggle(t *testing.T) {
+	reader := &fakePreviewReader{content: []byte("aa bb cc\ndd    ee\nff")}
+	model := NewPreviewModel("/abs/ws-copy.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	selection := previewSelection{
+		anchor: previewPosition{line: 0, col: 1},
+		focus:  previewPosition{line: 2, col: 2},
+	}
+	want := "a bb cc\ndd    ee\nff"
+	off := extractSelection(model.lines, selection)
+	if off != want {
+		t.Fatalf("extractSelection(off) = %q, want %q", off, want)
+	}
+
+	model.selection = selection
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 's', Text: "s"})
+	if !model.showWhitespace {
+		t.Fatal("whitespace toggle did not enable display")
+	}
+	on := extractSelection(model.lines, model.selection)
+	if on != off {
+		t.Fatalf("whitespace toggle changed extraction: %q -> %q", off, on)
+	}
+	if on != want {
+		t.Fatalf("extractSelection(on) = %q, want %q", on, want)
 	}
 }
 
