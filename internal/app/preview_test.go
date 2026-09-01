@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"image/color"
 	"reflect"
 	"strings"
@@ -398,6 +399,90 @@ func TestPreviewWhitespaceRenderingUsesThemeForegroundAndSelectionBackground(t *
 	rendered = model.renderContent(previewLine{text: "a  b", origin: 0}, 4)
 	if !strings.Contains(rendered, "38;5;250") || !strings.Contains(rendered, "48;5;252") {
 		t.Fatalf("light whitespace rendering = %q, want foreground 250 and selection background 252", rendered)
+	}
+}
+
+func TestPreviewWhitespaceViewBodyMatchesGlyphSubstitutedFullLines(t *testing.T) {
+	reader := &fakePreviewReader{content: []byte("first  line\nsecond    line\n  indented  last")}
+	model := NewPreviewModel("/abs/ws-full.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+	if got := len(model.displayLines); got != 3 {
+		t.Fatalf("setup: displayLines = %d, want 3", got)
+	}
+
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 's', Text: "s"})
+	if !model.showWhitespace {
+		t.Fatalf("whitespace toggle did not enable display")
+	}
+	rows := strings.Split(ansi.Strip(model.View().Content), "\n")
+	bodyStart := model.bodyStartY()
+	for index, original := range model.lines {
+		want := strings.ReplaceAll(original.text, " ", previewWhitespaceGlyph)
+		if got := previewBodyContent(model, rows[bodyStart+index]); got != want {
+			t.Errorf("whitespace ON body line %d = %q, want %q", index, got, want)
+		}
+	}
+
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 's', Text: "s"})
+	if model.showWhitespace {
+		t.Fatalf("whitespace toggle did not disable display")
+	}
+	rows = strings.Split(ansi.Strip(model.View().Content), "\n")
+	for index, original := range model.lines {
+		if got := previewBodyContent(model, rows[bodyStart+index]); got != original.text {
+			t.Fatalf("whitespace OFF body line %d = %q, want %q", index, got, original.text)
+		}
+	}
+}
+
+// previewBodyContent extracts the line content from an ansi-stripped body row,
+// removing the left padding, line-number gutter, separator, trailing scrollbar
+// cell, and the right padding.
+func previewBodyContent(model *PreviewModel, row string) string {
+	content := row[model.contentLeftPadding():]
+	content = content[model.gutterWidth():]
+	content = strings.TrimPrefix(content, previewGutterDividerGlyph)
+	content = strings.TrimPrefix(content, " ")
+	content = strings.TrimSuffix(content, scrollbarTrackGlyph)
+	content = strings.TrimSuffix(content, scrollbarThumbGlyph)
+	return strings.TrimRight(content, " ")
+}
+
+func TestPreviewWhitespaceRenderingEdgeCasesForEmptyAndSpaceOnlyLines(t *testing.T) {
+	tests := []struct {
+		text string
+		want string
+	}{
+		{text: "", want: ""},
+		{text: "  ", want: "⋅⋅"},
+		{text: "   ", want: "⋅⋅⋅"},
+		{text: "trailing  ", want: "trailing⋅⋅"},
+		{text: "ab  cd", want: "ab⋅⋅cd"},
+		{text: "a\u3000b c", want: "a\u3000b⋅c"},
+	}
+	model := PreviewModel{showWhitespace: true}
+	for _, test := range tests {
+		line := previewLine{text: test.text, origin: 0}
+		got := strings.TrimRight(ansi.Strip(model.renderContent(line, 20)), " ")
+		if got != test.want {
+			t.Errorf("whitespace ON renderContent(%q) = %q, want %q", test.text, got, test.want)
+		}
+		if width := lipgloss.Width(got); width != lipgloss.Width(test.text) {
+			t.Errorf("whitespace ON renderContent(%q) cell width = %d, want %d", test.text, width, lipgloss.Width(test.text))
+		}
+	}
+
+	model.showWhitespace = false
+	for _, test := range tests {
+		line := previewLine{text: test.text, origin: 0}
+		got := strings.TrimRight(ansi.Strip(model.renderContent(line, 20)), " ")
+		if got != strings.TrimRight(test.text, " ") {
+			t.Errorf("whitespace OFF renderContent(%q) = %q, want %q", test.text, got, strings.TrimRight(test.text, " "))
+		}
+		if strings.Contains(got, previewWhitespaceGlyph) {
+			t.Errorf("whitespace OFF renderContent(%q) contains glyph", test.text)
+		}
 	}
 }
 
@@ -834,6 +919,48 @@ func TestPreviewWrapClampsVerticalOffsetToWrappedRows(t *testing.T) {
 	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 'w', Text: "w"})
 	if model.offset != unwrappedMax {
 		t.Fatalf("offset after unwrap clamp = %d, want %d", model.offset, unwrappedMax)
+	}
+}
+
+func TestPreviewWhitespaceToggleLeavesWrappedDisplayLineSegmentsIdentical(t *testing.T) {
+	reader := &fakePreviewReader{content: []byte("aa bb cc dd ee ff\nsecond line here\nthird")}
+	model := NewPreviewModel("/abs/ws-wrap.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 20, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	if !model.wrap {
+		t.Fatal("wrap toggle did not enable wrap")
+	}
+	if len(model.displayLines) <= 3 {
+		t.Fatalf("setup did not wrap: displayLines = %#v", model.displayLines)
+	}
+
+	record := func() []string {
+		rows := make([]string, len(model.displayLines))
+		for index, line := range model.displayLines {
+			rows[index] = fmt.Sprintf("%d:%d:%q", line.origin, line.col, line.text)
+		}
+		return rows
+	}
+	baseline := record()
+
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 's', Text: "s"})
+	if !model.showWhitespace {
+		t.Fatal("whitespace toggle did not enable display")
+	}
+	model.rebuildDisplayLines()
+	if got := record(); !reflect.DeepEqual(got, baseline) {
+		t.Fatalf("whitespace ON wrap segments = %#v, want %#v", got, baseline)
+	}
+
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 's', Text: "s"})
+	if model.showWhitespace {
+		t.Fatal("whitespace toggle did not disable display")
+	}
+	model.rebuildDisplayLines()
+	if got := record(); !reflect.DeepEqual(got, baseline) {
+		t.Fatalf("whitespace OFF wrap segments = %#v, want %#v", got, baseline)
 	}
 }
 
