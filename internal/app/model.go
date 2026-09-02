@@ -67,6 +67,8 @@ const (
 	helpReloadLabel            = "reload"
 	helpQuitKey                = "q"
 	helpQuitLabel              = "quit"
+	helpFindKey                = "/"
+	helpFindLabel              = "find"
 	helpGroupSeparator         = "    "
 	contentLeftPadding         = 1
 	ellipsis                   = "…"
@@ -97,6 +99,13 @@ type Model struct {
 	offset   int
 	width    int
 	height   int
+
+	findActive     bool
+	findQuery      string
+	findAnchorPath string
+	lastQuery      string
+	// A cancelled search keeps lastQuery for n/N while removing its underline.
+	findHighlightQuery string
 
 	// The zero value keeps the existing dark palette until detection succeeds.
 	lightBackground bool
@@ -194,6 +203,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toast = ""
 		}
 	case tea.KeyPressMsg:
+		if m.findActive {
+			return m, m.handleFindKey(msg)
+		}
+		if isFindStartKey(msg) {
+			m.startFind()
+			break
+		}
+		if m.lastQuery != "" {
+			if direction := findRepeatDirection(msg); direction != 0 {
+				m.moveFindMatch(m.lastQuery, direction)
+				break
+			}
+		}
+		if isFindEscapeKey(msg) {
+			m.clearFindHighlights()
+			break
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -233,6 +259,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.warning = addWarning(m.warning, "Preview: "+msg.err)
 		}
 	case tea.MouseClickMsg:
+		if m.findActive {
+			m.confirmFind()
+		}
 		return m, m.handleMouseClick(msg)
 	case tea.MouseMotionMsg:
 		m.handleMouseMotion(msg)
@@ -995,12 +1024,10 @@ func (m *Model) renderTreeRow(index int, prefix, icon, name string, status brows
 		icon = ""
 		name = ""
 	}
-	iconWidth := lipgloss.Width(icon)
-	name = truncateToWidth(name, max(0, budget-iconWidth))
-	nameWidth := lipgloss.Width(name)
 
-	rendered := rowStyle.Render(prefix) + iconSpan.Render(icon) + nameStyle.Render(name)
-	if padding := width - prefixWidth - iconWidth - nameWidth; padding > 0 {
+	rendered := rowStyle.Render(prefix) + iconSpan.Render(icon) + m.renderFindName(index, name, nameStyle)
+	rendered = truncateToWidth(rendered, width)
+	if padding := width - lipgloss.Width(rendered); padding > 0 {
 		rendered += rowStyle.Render(strings.Repeat(" ", padding))
 	}
 
@@ -1071,6 +1098,9 @@ func (m *Model) contentLeftPadding() int {
 }
 
 func (m *Model) renderFooter() string {
+	if m.findActive {
+		return m.renderLine(m.findPrompt())
+	}
 	if m.toast != "" {
 		return m.renderStyledLine(strings.Repeat(" ", m.contentLeftPadding())+m.toast, toastStyle)
 	}
@@ -1080,7 +1110,8 @@ func (m *Model) renderFooter() string {
 
 	help := renderShortcut(helpCopyKey, helpCopyLabel) + helpGroupSeparator +
 		renderShortcut(helpReloadKey, helpReloadLabel) + helpGroupSeparator +
-		renderShortcut(helpQuitKey, helpQuitLabel)
+		renderShortcut(helpQuitKey, helpQuitLabel) + helpGroupSeparator +
+		renderShortcut(helpFindKey, helpFindLabel)
 	help = strings.Repeat(" ", m.contentLeftPadding()) + help
 	return m.renderStyledLine(help, lipgloss.NewStyle())
 }
