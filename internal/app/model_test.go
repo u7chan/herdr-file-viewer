@@ -517,7 +517,7 @@ func TestFooterAndDividerReserveTheBottomOfTheViewport(t *testing.T) {
 	if got := strings.TrimSpace(lines[4]); got != "" {
 		t.Fatalf("reserved git info row = %q, want blank", lines[4])
 	}
-	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " space copy    r reload    q quit" {
+	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " space copy    r reload    q quit    / find" {
 		t.Fatalf("footer = %q, want shortcut hints at the bottom", lines[len(lines)-1])
 	}
 	if !strings.HasPrefix(lines[2], " "+rootTreeIcon+" ") {
@@ -569,7 +569,7 @@ func TestFooterShowsOperationalStatusUntilReadyAndShortcutsWhenIdle(t *testing.T
 	model := NewModel(root, "", fake)
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
 
-	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    r reload    q quit" {
+	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    r reload    q quit    / find" {
 		t.Fatalf("initial footer = %q, want shortcut hints", got)
 	}
 
@@ -579,7 +579,7 @@ func TestFooterShowsOperationalStatusUntilReadyAndShortcutsWhenIdle(t *testing.T
 	}
 
 	model.Update(loadResultFromInit(t, load))
-	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    r reload    q quit" {
+	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    r reload    q quit    / find" {
 		t.Fatalf("ready footer = %q, want shortcut hints", got)
 	}
 }
