@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -55,6 +56,77 @@ func bytesRepeat(byteValue byte, count int) []byte {
 		value[index] = byteValue
 	}
 	return value
+}
+
+func TestPreviewCategoryForBoundaryCutUTF8StaysText(t *testing.T) {
+	tests := []struct {
+		name   string
+		rune   string
+		offset int // rune bytes placed before the sniff boundary
+	}{
+		{name: "2-byte rune cut after its lead byte", rune: "é", offset: 1},
+		{name: "3-byte rune cut after its lead byte", rune: "　", offset: 1},
+		{name: "3-byte rune cut after one continuation byte", rune: "　", offset: 2},
+		{name: "3-byte rune ends exactly at the boundary", rune: "　", offset: 3},
+		{name: "4-byte rune cut after its lead byte", rune: "😀", offset: 1},
+		{name: "4-byte rune cut after one continuation byte", rune: "😀", offset: 2},
+		{name: "4-byte rune cut after two continuation bytes", rune: "😀", offset: 3},
+		{name: "4-byte rune ends exactly at the boundary", rune: "😀", offset: 4},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encoded := []byte(test.rune)
+			if test.offset > len(encoded) {
+				t.Fatalf("test setup: offset %d exceeds rune size %d", test.offset, len(encoded))
+			}
+			content := make([]byte, 0, previewSniffBytes+len(encoded))
+			content = append(content, bytesRepeat('a', previewSniffBytes-test.offset)...)
+			content = append(content, encoded[:test.offset]...)
+			content = append(content, encoded[test.offset:]...)
+			content = append(content, bytesRepeat('b', 64)...)
+			if !utf8.Valid(content) {
+				t.Fatalf("test setup: content is not valid UTF-8")
+			}
+			if got := previewCategoryFor("data.xyz", content); got != previewCategoryText {
+				t.Fatalf("previewCategoryFor() = %q, want text for rune %q cut at byte %d", got, test.rune, test.offset)
+			}
+		})
+	}
+}
+
+func TestPreviewCategoryForIgnoresInvalidBytesBeyondSniffHead(t *testing.T) {
+	content := append(bytesRepeat('a', previewSniffBytes), 0xff)
+	if got := previewCategoryFor("data.xyz", content); got != previewCategoryText {
+		t.Fatalf("previewCategoryFor() = %q, want text: bytes beyond the sniff head are not sniffed", got)
+	}
+}
+
+func TestPreviewCategoryForNULAndTrueInvalidUTF8StayBinary(t *testing.T) {
+	tests := []struct {
+		name    string
+		content []byte
+	}{
+		{name: "NUL byte inside the sniff head", content: append(append(bytesRepeat('a', 4096), 0), bytesRepeat('b', 8192)...)},
+		{name: "invalid byte inside the sniff head", content: append(append(bytesRepeat('a', 8188), 0xff), bytesRepeat('b', 64)...)},
+		{name: "invalid byte at the cut position", content: append(append(bytesRepeat('a', 8191), 0xff), bytesRepeat('b', 64)...)},
+		{name: "invalid lead byte at the cut", content: append(append(bytesRepeat('a', 8191), 0xc0), bytesRepeat('b', 64)...)},
+		{name: "out-of-range lead byte at the cut", content: append(append(bytesRepeat('a', 8191), 0xf5), bytesRepeat('b', 64)...)},
+		{name: "lone continuation byte at the cut", content: append(append(bytesRepeat('a', 8191), 0x80), bytesRepeat('b', 64)...)},
+		{name: "overlong prefix at the cut", content: append(append(bytesRepeat('a', 8190), 0xe0, 0x80), bytesRepeat('b', 64)...)},
+		{name: "ED continuation above its range at the cut", content: append(append(bytesRepeat('a', 8190), 0xed, 0xa0), bytesRepeat('b', 64)...)},
+		{name: "F0 continuation below its range at the cut", content: append(append(bytesRepeat('a', 8190), 0xf0, 0x80), bytesRepeat('b', 64)...)},
+		{name: "F4 continuation above its range at the cut", content: append(append(bytesRepeat('a', 8190), 0xf4, 0x90), bytesRepeat('b', 64)...)},
+		{name: "extra continuation beyond the rune size at the cut", content: append(append(bytesRepeat('a', 8188), 0xe3, 0x80, 0x80, 0x80), bytesRepeat('b', 64)...)},
+		{name: "small file ending with a partial rune", content: append([]byte("abc"), 0xe3)},
+		{name: "small file with NUL byte", content: []byte("a\x00b")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := previewCategoryFor("data.xyz", test.content); got != previewCategoryBinary {
+				t.Fatalf("previewCategoryFor() = %q, want binary", got)
+			}
+		})
+	}
 }
 
 func TestPreviewTextLinesNormalizesCRLFTabsAndControls(t *testing.T) {
