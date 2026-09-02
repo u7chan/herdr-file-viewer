@@ -981,12 +981,76 @@ func previewCategoryFor(path string, content []byte) previewCategory {
 func sniffBinaryContent(content []byte) bool {
 	head := content
 	if len(head) > previewSniffBytes {
-		head = head[:previewSniffBytes]
+		// The byte cut can split one multi-byte rune; drop the trailing
+		// partial rune so valid text crossing the boundary is not
+		// misclassified as binary. At most three bytes are removed.
+		head = trimIncompleteRuneTail(head[:previewSniffBytes])
 	}
 	if bytes.IndexByte(head, 0) >= 0 {
 		return true
 	}
 	return !utf8.Valid(head)
+}
+
+// trimIncompleteRuneTail removes the trailing rune split by a byte-boundary
+// cut. Sequences already invalid inside the head are left untouched so
+// utf8.Valid can still reject them.
+func trimIncompleteRuneTail(head []byte) []byte {
+	end := len(head)
+	start := end
+	for start > 0 && head[start-1] >= 0x80 && head[start-1] <= 0xBF {
+		start--
+	}
+	if start == 0 {
+		return head // continuation bytes without a lead are invalid regardless of the cut
+	}
+	lead := head[start-1]
+	size := utf8RuneSize(lead)
+	if size == 0 || end-start >= size-1 {
+		return head // invalid, complete, or overlong tail: utf8.Valid decides
+	}
+	if !validRunePrefix(lead, head[start:end]) {
+		return head // out-of-range continuation is corruption, not a cut
+	}
+	return head[:start-1]
+}
+
+// utf8RuneSize returns the encoded size of a UTF-8 lead byte, or 0 for
+// bytes that can never start a valid rune (0xC0, 0xC1, 0xF5-0xFF).
+func utf8RuneSize(lead byte) int {
+	switch {
+	case lead >= 0xC2 && lead <= 0xDF:
+		return 2
+	case lead >= 0xE0 && lead <= 0xEF:
+		return 3
+	case lead >= 0xF0 && lead <= 0xF4:
+		return 4
+	default:
+		return 0
+	}
+}
+
+// validRunePrefix reports whether lead and a strict prefix of its
+// continuation bytes can still form a valid rune once the missing bytes
+// follow the boundary. Only the first continuation has a lead-specific
+// range; the remaining byte positions accept the full 0x80-0xBF range.
+func validRunePrefix(lead byte, continuation []byte) bool {
+	if len(continuation) == 0 {
+		return true
+	}
+	first := continuation[0]
+	switch lead {
+	case 0xE0:
+		return first >= 0xA0
+	case 0xED:
+		return first <= 0x9F
+	case 0xF0:
+		return first >= 0x90
+	case 0xF4:
+		return first <= 0x8F
+	default:
+		return true
+	}
 }
 
 // previewTextLines normalizes the content into numbered display lines:
