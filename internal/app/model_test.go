@@ -370,7 +370,8 @@ func TestMouseDirectoryClickExpandsCollapsesAndLoadsAsynchronously(t *testing.T)
 	fake := newFakeFileSystem()
 	fake.set(root, []filesystem.Entry{{Name: "directory", Mode: fs.ModeDir}})
 	fake.set(directoryPath, []filesystem.Entry{{Name: "child", Mode: 0}})
-	model := NewModel(root, "", fake)
+	client := &stubPreviewClient{openPaneID: "wY:p9Z"}
+	model := NewModelWithPreview(root, "", PreviewConfig{Client: client, TargetPane: "wY:p3K", WorkspaceID: "wY"}, fake)
 	completeInitialLoad(t, model)
 	model.Update(tea.WindowSizeMsg{Width: 40, Height: 7})
 
@@ -411,9 +412,12 @@ func TestMouseDirectoryClickExpandsCollapsesAndLoadsAsynchronously(t *testing.T)
 	if got := fake.calls(); len(got) != 2 {
 		t.Fatalf("directory click filesystem calls = %v, want root and directory only", got)
 	}
+	if len(client.openFiles) != 0 || len(client.closed) != 0 {
+		t.Fatalf("directory clicks opened %v / closed %v previews, want none", client.openFiles, client.closed)
+	}
 }
 
-func TestMouseClickSelectsRootFileAndSymlinkWithoutCopyOrPreview(t *testing.T) {
+func TestMouseClickWithoutPreviewConfigSelectsRootFileAndSymlinkOnly(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeFileSystem()
 	fake.set(root, []filesystem.Entry{
@@ -1306,7 +1310,8 @@ func TestRootMouseClickSelectsWithoutCollapsing(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeFileSystem()
 	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
-	model := NewModel(root, "", fake)
+	client := &stubPreviewClient{openPaneID: "wY:p9Z"}
+	model := NewModelWithPreview(root, "", PreviewConfig{Client: client, TargetPane: "wY:p3K", WorkspaceID: "wY"}, fake)
 	completeInitialLoad(t, model)
 	model.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
 
@@ -1315,6 +1320,9 @@ func TestRootMouseClickSelectsWithoutCollapsing(t *testing.T) {
 	}
 	if len(model.visibleRows) != 2 || !model.tree.Root().Expanded() || model.selected != 0 {
 		t.Fatalf("root click state = rows %d, root expanded %v, selected %d; want rows 2, true, 0", len(model.visibleRows), model.tree.Root().Expanded(), model.selected)
+	}
+	if len(client.openFiles) != 0 || len(client.closed) != 0 {
+		t.Fatalf("root click opened %v / closed %v previews, want none", client.openFiles, client.closed)
 	}
 }
 

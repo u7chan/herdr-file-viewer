@@ -301,6 +301,42 @@ func TestFindEmptyMouseClickPreservesTheCompletedSearch(t *testing.T) {
 	}
 }
 
+func TestFindMouseFileClickConfirmsWithoutOpeningPreview(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "file.txt")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file.txt"}})
+	client := &stubPreviewClient{openPaneID: "wY:p9Z"}
+	model := NewModelWithPreview(root, "", PreviewConfig{Client: client, TargetPane: "wY:p3K", WorkspaceID: "wY"}, fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	model.UpdateKey(findTextKey("/"))
+	model.UpdateKey(findTextKey("file"))
+	click := tea.MouseClickMsg{X: 0, Y: model.treeStartY() + stickyRootHeight, Button: tea.MouseLeft}
+
+	if command := model.UpdateMouse(click); command != nil {
+		t.Fatalf("find-mode file click returned command %v, want nil", command)
+	}
+	if model.findActive || model.findQuery != "" || model.lastQuery != "file" || model.findHighlightQuery != "file" {
+		t.Fatalf("find-mode click state = active %v query %q last %q highlight %q", model.findActive, model.findQuery, model.lastQuery, model.findHighlightQuery)
+	}
+	if node := model.selectedNode(); node == nil || node.Name() != "file.txt" {
+		t.Fatalf("find-mode click selected node = %#v, want file.txt", node)
+	}
+	if len(client.openFiles) != 0 || len(client.closed) != 0 || len(client.getCalls) != 0 || len(client.listed) != 0 {
+		t.Fatalf("find-mode click used preview client: opens %v closes %v gets %v lists %v", client.openFiles, client.closed, client.getCalls, client.listed)
+	}
+
+	command := model.UpdateMouse(click)
+	if command == nil {
+		t.Fatal("post-find file click returned nil command")
+	}
+	model.Update(command().(previewResultMsg))
+	if got, want := client.openFiles, []string{filePath}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("post-find opened files = %v, want %v", got, want)
+	}
+}
+
 func TestFindEscapeFallsBackToTheLastVisibleRowWhenAnchorDisappears(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeFileSystem()
