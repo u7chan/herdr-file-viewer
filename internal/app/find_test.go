@@ -337,6 +337,69 @@ func TestFindMouseFileClickConfirmsWithoutOpeningPreview(t *testing.T) {
 	}
 }
 
+func TestFindMouseDirectoryClickConfirmsBeforeExpanding(t *testing.T) {
+	root := t.TempDir()
+	directoryPath := filepath.Join(root, "directory")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{
+		{Name: "directory", Mode: fs.ModeDir},
+		{Name: "match"},
+	})
+	fake.set(directoryPath, []filesystem.Entry{{Name: "child"}})
+	client := &stubPreviewClient{openPaneID: "wY:p9Z"}
+	model := NewModelWithPreview(root, "", PreviewConfig{Client: client, TargetPane: "wY:p3K", WorkspaceID: "wY"}, fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+
+	directoryRow := findVisibleIndex(t, model, "directory")
+	matchRow := findVisibleIndex(t, model, "match")
+	directory := model.visibleRows[directoryRow].Node
+	if directory == nil || !directory.IsDirectory() || directory.Expanded() {
+		t.Fatalf("directory before find click = %#v, want collapsed directory", directory)
+	}
+
+	model.UpdateKey(findTextKey("/"))
+	model.UpdateKey(findTextKey("match"))
+	if model.selected != matchRow {
+		t.Fatalf("find selection = %d, want match row %d", model.selected, matchRow)
+	}
+	clickY := model.treeStartY() + stickyRootHeight
+	if clicked, ok := model.rowIndexAtY(clickY); !ok || clicked != directoryRow {
+		t.Fatalf("click coordinate y=%d maps to row %d, %v; want directory row %d", clickY, clicked, ok, directoryRow)
+	}
+	click := tea.MouseClickMsg{X: 0, Y: clickY, Button: tea.MouseLeft}
+
+	if command := model.UpdateMouse(click); command != nil {
+		t.Fatalf("find-mode directory click returned command %v, want nil", command)
+	}
+	if model.findActive || model.selected != directoryRow {
+		t.Fatalf("find-mode directory click state = active %v selected %d, want inactive and row %d", model.findActive, model.selected, directoryRow)
+	}
+	if directory.Expanded() || directory.Loading() {
+		t.Fatalf("find-mode directory click changed directory state: expanded %v loading %v", directory.Expanded(), directory.Loading())
+	}
+	if len(client.openFiles) != 0 || len(client.closed) != 0 || len(client.getCalls) != 0 || len(client.listed) != 0 {
+		t.Fatalf("find-mode directory click used preview client: opens %v closes %v gets %v lists %v", client.openFiles, client.closed, client.getCalls, client.listed)
+	}
+
+	command := model.UpdateMouse(click)
+	if command == nil {
+		t.Fatal("post-find directory click returned nil command, want async load")
+	}
+	if !directory.Expanded() || !directory.Loading() {
+		t.Fatalf("post-find directory click state = expanded %v loading %v, want true true", directory.Expanded(), directory.Loading())
+	}
+	message := command()
+	result, ok := message.(browser.LoadResult)
+	if !ok {
+		t.Fatalf("post-find directory click command message = %T, want browser.LoadResult", message)
+	}
+	model.Update(result)
+	if !directory.Loaded() || directory.Loading() {
+		t.Fatalf("post-find directory load state = loaded %v loading %v, want true false", directory.Loaded(), directory.Loading())
+	}
+}
+
 func TestFindEscapeFallsBackToTheLastVisibleRowWhenAnchorDisappears(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeFileSystem()
