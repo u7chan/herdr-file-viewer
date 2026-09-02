@@ -136,8 +136,9 @@ func NewModel(root, warning string, fileSystems ...filesystem.FileSystem) *Model
 	return NewModelWithPreview(root, warning, PreviewConfig{}, fileSystems...)
 }
 
-// NewModelWithPreview additionally wires the Enter-preview capability. The
-// zero PreviewConfig keeps Enter a no-op, matching the plain NewModel.
+// NewModelWithPreview additionally wires preview activation for Enter and
+// left-clicked previewable rows. The zero PreviewConfig keeps activation a
+// no-op, matching the plain NewModel.
 func NewModelWithPreview(root, warning string, preview PreviewConfig, fileSystems ...filesystem.FileSystem) *Model {
 	fileSystem := filesystem.FileSystem(filesystem.NewLocal())
 	if len(fileSystems) > 0 && fileSystems[0] != nil {
@@ -248,7 +249,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "left":
 			m.collapseOrMoveToParent()
 		case "enter":
-			return m, m.openPreviewOnEnter()
+			return m, m.openPreviewOnActivate()
 		}
 	case previewResultMsg:
 		if msg.seq != m.previewSeq {
@@ -259,10 +260,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.warning = addWarning(m.warning, "Preview: "+msg.err)
 		}
 	case tea.MouseClickMsg:
-		if m.findActive {
+		activateRow := !m.findActive
+		if !activateRow {
 			m.confirmFind()
 		}
-		return m, m.handleMouseClick(msg)
+		return m, m.handleMouseClick(msg, activateRow)
 	case tea.MouseMotionMsg:
 		m.handleMouseMotion(msg)
 	case tea.MouseReleaseMsg:
@@ -339,7 +341,7 @@ func (m *Model) copySelection() tea.Cmd {
 	return tea.SetClipboard(path)
 }
 
-func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
+func (m *Model) handleMouseClick(msg tea.MouseClickMsg, activateRow bool) tea.Cmd {
 	if msg.Button != tea.MouseLeft {
 		return nil
 	}
@@ -355,8 +357,11 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 
 	m.selected = index
 	node := m.selectedNode()
-	if node == nil || node.Parent() == nil || !node.IsDirectory() {
+	if node == nil || node.Parent() == nil || !activateRow {
 		return nil
+	}
+	if !node.IsDirectory() {
+		return m.openPreviewOnActivate()
 	}
 
 	if node.Expanded() {

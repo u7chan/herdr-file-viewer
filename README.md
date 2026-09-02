@@ -91,7 +91,7 @@ directory instead of the directory being browsed.
 - `Ctrl+b` / `Ctrl+f` or `PageUp` / `PageDown`: move by one viewport with a one-row overlap.
 - `Home` / `End`: move to the first / last visible row.
 - `Right` / `Left`: expand/collapse a directory or move to its parent.
-- Left click: toggle a directory; files, symlinks, and the root are selection-only.
+- Left click: toggle a directory; open a preview for a file or a symlink that resolves to a file; the root is selection-only.
 - Mouse wheel over the tree: scroll three rows per wheel event.
 - The rightmost tree column is a scrollbar. Click its track to jump, or drag its thumb to scroll. Scrollbar movement keeps the selected row in the viewport and does not read the filesystem.
 - `Space` / full-width `U+3000`: copy the selected absolute path through OSC 52.
@@ -101,13 +101,14 @@ directory instead of the directory being browsed.
   entry no longer exists. Completion is confirmed by a brief in-app toast in
   the footer, so the reload feedback does not depend on Herdr settings.
 - `Enter`: open a text preview of the selected file in a right split pane and
-  keep the keyboard focus in the tree. Directories and symlinks whose target
-  is a directory or missing are ignored. The preview pane is tracked by its
-  pane ID and re-discovered through its `preview=<path>` metadata token after
-  a tree restart; pressing `Enter` on the file already shown keeps the
-  existing pane, and pressing it on another file closes and reopens the pane.
-  Without a Herdr context (`HERDR_PANE_ID` missing) `Enter` stays a no-op;
-  CLI failures surface as a footer warning and the tree keeps working.
+  keep the keyboard focus in the tree; it is equivalent to left-clicking a
+  previewable file row. Directories and symlinks whose target is a directory
+  or missing are ignored. The preview pane is tracked by its pane ID and
+  re-discovered through its `preview=<path>` metadata token after a tree
+  restart; pressing `Enter` on the file already shown keeps the existing pane,
+  and pressing it on another file closes and reopens the pane. Without a Herdr
+  context (`HERDR_PANE_ID` missing) `Enter` stays a no-op; CLI failures surface
+  as a footer warning and the tree keeps working.
 - Right click and other unassigned input: no effect.
 - `q` / `Ctrl+C`: quit. Bubble Tea restores the alternate screen, mouse mode,
   cursor, and input state when the pane exits.

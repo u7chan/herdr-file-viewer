@@ -40,15 +40,15 @@ type PreviewClient interface {
 }
 
 // PreviewConfig wires the tree model to the preview-pane capability. A zero
-// config (or an empty TargetPane) makes Enter a safe no-op, which is the
-// behavior outside a Herdr pane.
+// config (or an empty TargetPane) makes preview activation a safe no-op,
+// which is the behavior outside a Herdr pane.
 type PreviewConfig struct {
 	Client      PreviewClient
 	TargetPane  string
 	WorkspaceID string
 }
 
-// previewResultMsg is the outcome of one Enter-triggered preview command.
+// previewResultMsg is the outcome of one preview activation command.
 // paneID is the pane to track afterwards ("" clears the tracked pane).
 type previewResultMsg struct {
 	seq    int
@@ -56,11 +56,11 @@ type previewResultMsg struct {
 	err    string
 }
 
-// openPreviewOnEnter launches the Enter action for the selected row: it
+// openPreviewOnActivate launches preview activation for the selected row: it
 // resolves the selectable file target and, inside a command, ensures exactly
 // one preview pane shows that file. Directories, non-file symlinks, missing
-// Herdr context, and configuration absence keep Enter a no-op.
-func (m *Model) openPreviewOnEnter() tea.Cmd {
+// Herdr context, and configuration absence keep activation a no-op.
+func (m *Model) openPreviewOnActivate() tea.Cmd {
 	node := m.selectedNode()
 	if node == nil {
 		return nil
@@ -145,7 +145,7 @@ func runPreviewSwap(client PreviewClient, workspaceID, trackedPaneID, file, targ
 }
 
 // addWarning appends one distinct warning to the persistent footer warning,
-// so repeated Enter failures do not stack up.
+// so repeated preview failures do not stack up.
 func addWarning(existing, next string) string {
 	if next == "" {
 		return existing

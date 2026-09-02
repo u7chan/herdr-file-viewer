@@ -235,6 +235,119 @@ func TestEnterWithoutHerdrContextIsASafeNoOp(t *testing.T) {
 	}
 }
 
+func TestMouseFileClickOpensPreview(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "file.txt")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file.txt", Mode: 0}})
+	client := &stubPreviewClient{openPaneID: "wY:p9Z"}
+	model := NewModelWithPreview(root, "", PreviewConfig{Client: client, TargetPane: "wY:p3K", WorkspaceID: "wY"}, fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+
+	command := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: model.treeStartY() + stickyRootHeight, Button: tea.MouseLeft})
+	if command == nil {
+		t.Fatal("file click returned nil command")
+	}
+	message := command()
+	result, ok := message.(previewResultMsg)
+	if !ok {
+		t.Fatalf("file click command message = %T, want previewResultMsg", message)
+	}
+	model.Update(result)
+
+	if model.selectedNode().Name() != "file.txt" {
+		t.Fatalf("selected node = %q, want file.txt", model.selectedNode().Name())
+	}
+	if got, want := client.openFiles, []string{filePath}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("opened files = %v, want %v", got, want)
+	}
+	if got, want := client.openTargets, []string{"wY:p3K"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("open targets = %v, want %v", got, want)
+	}
+	if got, want := client.listed, []string{"wY"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("listed workspaces = %v, want %v", got, want)
+	}
+	if model.previewPaneID != "wY:p9Z" {
+		t.Fatalf("tracked pane = %q, want wY:p9Z", model.previewPaneID)
+	}
+}
+
+func TestMouseFileClickOnSameFileKeepsExistingPreview(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "file.txt")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file.txt", Mode: 0}})
+	client := &stubPreviewClient{
+		openPaneID: "wY:p9Z",
+		getPane:    PreviewPane{PaneID: "wY:p9Z", File: filePath},
+		getFound:   true,
+	}
+	model := NewModelWithPreview(root, "", PreviewConfig{Client: client, TargetPane: "wY:p3K", WorkspaceID: "wY"}, fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	click := tea.MouseClickMsg{X: 0, Y: model.treeStartY() + stickyRootHeight, Button: tea.MouseLeft}
+
+	first := model.UpdateMouse(click)
+	if first == nil {
+		t.Fatal("initial file click returned nil command")
+	}
+	model.Update(first().(previewResultMsg))
+	openCount, closeCount := len(client.openFiles), len(client.closed)
+	if openCount != 1 || closeCount != 0 {
+		t.Fatalf("initial file click pane operations = opens %v / closes %v, want one open", client.openFiles, client.closed)
+	}
+
+	second := model.UpdateMouse(click)
+	if second == nil {
+		t.Fatal("same-file click returned nil command")
+	}
+	model.Update(second().(previewResultMsg))
+	if len(client.openFiles) != openCount || len(client.closed) != closeCount {
+		t.Fatalf("same-file click changed pane operations: opens %v / closes %v", client.openFiles, client.closed)
+	}
+	if got, want := client.getCalls, []string{"wY:p9Z"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("same-file click get calls = %v, want %v", got, want)
+	}
+	if got, want := client.listed, []string{"wY"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("same-file click listed workspaces = %v, want %v", got, want)
+	}
+}
+
+func TestMouseFileClickOnDifferentFileClosesAndReopensPreview(t *testing.T) {
+	root := t.TempDir()
+	aPath := filepath.Join(root, "a.txt")
+	bPath := filepath.Join(root, "b.txt")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "a.txt", Mode: 0}, {Name: "b.txt", Mode: 0}})
+	client := &stubPreviewClient{
+		openPaneID: "wY:p9Z",
+		getPane:    PreviewPane{PaneID: "wY:p9Z", File: aPath},
+		getFound:   true,
+	}
+	model := NewModelWithPreview(root, "", PreviewConfig{Client: client, TargetPane: "wY:p3K", WorkspaceID: "wY"}, fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+
+	first := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: model.treeStartY() + stickyRootHeight, Button: tea.MouseLeft})
+	if first == nil {
+		t.Fatal("first file click returned nil command")
+	}
+	model.Update(first().(previewResultMsg))
+	second := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: model.treeStartY() + stickyRootHeight + 1, Button: tea.MouseLeft})
+	if second == nil {
+		t.Fatal("second file click returned nil command")
+	}
+	model.Update(second().(previewResultMsg))
+
+	if got, want := client.openFiles, []string{aPath, bPath}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("opened files = %v, want %v", got, want)
+	}
+	if got, want := client.closed, []string{"wY:p9Z"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("closed panes = %v, want %v", got, want)
+	}
+}
+
 func TestEnterOpensPreviewAndKeepsTreeState(t *testing.T) {
 	root := t.TempDir()
 	filePath := filepath.Join(root, "file.txt")
@@ -434,7 +547,7 @@ func TestPreviewTargetPathRejectsNilNode(t *testing.T) {
 	}
 }
 
-func TestOpenPreviewOnEnterOpensSymlinkToFile(t *testing.T) {
+func TestPreviewActivationOpensSymlinkToFile(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "target.txt")
 	link := filepath.Join(root, "link.txt")
