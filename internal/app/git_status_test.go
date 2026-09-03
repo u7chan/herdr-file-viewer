@@ -62,11 +62,7 @@ func TestReloadKeyRefreshesGitStatusSnapshot(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("reload returned nil command")
 	}
-	result, ok := cmd().(browser.LoadResult)
-	if !ok {
-		t.Fatalf("reload message = %T, want browser.LoadResult", cmd())
-	}
-	model.Update(result)
+	model.Update(loadResultFromCommand(t, cmd))
 
 	if fake.statusCalls != 2 {
 		t.Fatalf("Git status calls after reload = %d, want 2", fake.statusCalls)
@@ -169,9 +165,9 @@ func TestIndentKeepsRootDirectChildrenAlignedAndCompressesOnlyFirstLevel(t *test
 	model := NewModel(root, "", fake)
 	completeInitialLoad(t, model)
 	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
-	model.Update(model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight})().(browser.LoadResult))
+	model.Update(loadResultFromCommand(t, model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight})))
 	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
-	model.Update(model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight})().(browser.LoadResult))
+	model.Update(loadResultFromCommand(t, model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight})))
 	model.Update(teaWindowSize(80, 10))
 
 	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
@@ -310,18 +306,14 @@ func TestFocusReturnRefreshesTreeWithoutToast(t *testing.T) {
 		t.Fatal("FocusMsg returned nil command")
 	} else {
 		switch message := cmd().(type) {
-		case browser.LoadResult:
+		case directoryLoadMsg:
 			model.Update(message)
 		case tea.BatchMsg:
 			for _, reloadCmd := range message {
-				result, ok := reloadCmd().(browser.LoadResult)
-				if !ok {
-					t.Fatalf("focus reload message = %T, want browser.LoadResult", reloadCmd())
-				}
-				model.Update(result)
+				model.Update(loadResultFromCommand(t, reloadCmd))
 			}
 		default:
-			t.Fatalf("FocusMsg command message = %T, want LoadResult or tea.BatchMsg", message)
+			t.Fatalf("FocusMsg command message = %T, want directoryLoadMsg or tea.BatchMsg", message)
 		}
 	}
 	if fake.statusCalls != statusCalls+1 {

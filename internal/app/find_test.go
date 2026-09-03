@@ -390,12 +390,7 @@ func TestFindMouseDirectoryClickConfirmsBeforeExpanding(t *testing.T) {
 	if !directory.Expanded() || !directory.Loading() {
 		t.Fatalf("post-find directory click state = expanded %v loading %v, want true true", directory.Expanded(), directory.Loading())
 	}
-	message := command()
-	result, ok := message.(browser.LoadResult)
-	if !ok {
-		t.Fatalf("post-find directory click command message = %T, want browser.LoadResult", message)
-	}
-	model.Update(result)
+	model.Update(loadResultFromCommand(t, command))
 	if !directory.Loaded() || directory.Loading() {
 		t.Fatalf("post-find directory load state = loaded %v loading %v, want true false", directory.Loaded(), directory.Loading())
 	}
@@ -647,11 +642,7 @@ func TestFindEscapeFallsBackToTheLastVisibleRowWhenAnchorDisappears(t *testing.T
 	if reload == nil {
 		t.Fatal("reloadTree() returned nil command")
 	}
-	result, ok := reload().(browser.LoadResult)
-	if !ok {
-		t.Fatalf("reload command = %T, want browser.LoadResult", reload())
-	}
-	model.Update(result)
+	model.Update(loadResultFromCommand(t, reload))
 	if !model.findActive || model.findAnchorPath == "" {
 		t.Fatalf("reload changed find state = active %v anchor %q", model.findActive, model.findAnchorPath)
 	}
@@ -677,7 +668,7 @@ func TestFindSearchesOnlyVisibleRows(t *testing.T) {
 	if load == nil {
 		t.Fatal("expand returned nil command")
 	}
-	model.Update(load().(browser.LoadResult))
+	model.Update(loadResultFromCommand(t, load))
 	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 
 	model.UpdateKey(findTextKey("/"))

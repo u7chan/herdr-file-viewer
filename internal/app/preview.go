@@ -29,14 +29,10 @@ const (
 
 	previewLoadingStatus             = "Loading preview..."
 	previewUntitled                  = "Preview"
-	previewHelpWrapKey               = "w"
-	previewHelpWrapLabel             = "wrap"
-	previewHelpWhitespaceKey         = "s"
-	previewHelpWhitespaceLabel       = "spaces"
 	previewHelpCopyKey               = "space"
 	previewHelpCopyLabel             = "copy"
-	previewHelpReloadKey             = "r"
-	previewHelpReloadLabel           = "reload"
+	previewHelpHelpKey               = "h"
+	previewHelpHelpLabel             = "help"
 	previewHelpCloseKey              = "q"
 	previewHelpCloseLabel            = "close"
 	previewNoSelectionStatus         = "No selection"
@@ -189,6 +185,9 @@ type PreviewModel struct {
 
 	toast    string
 	toastSeq int
+
+	helpConfig  HelpConfig
+	helpPending bool
 }
 
 // NewPreviewModel constructs the preview without reading the file. The
@@ -196,16 +195,23 @@ type PreviewModel struct {
 // missing or empty file path puts the model into a warning state that waits
 // for q.
 func NewPreviewModel(file string, client PreviewClient, paneID string, readers ...filesystem.FileReader) *PreviewModel {
+	return NewPreviewModelWithConfig(file, client, paneID, HelpConfig{}, readers...)
+}
+
+// NewPreviewModelWithConfig additionally wires the help popup capability
+// behind the h key.
+func NewPreviewModelWithConfig(file string, client PreviewClient, paneID string, help HelpConfig, readers ...filesystem.FileReader) *PreviewModel {
 	reader := filesystem.FileReader(filesystem.NewLocal())
 	if len(readers) > 0 && readers[0] != nil {
 		reader = readers[0]
 	}
 
 	m := &PreviewModel{
-		file:   file,
-		paneID: paneID,
-		client: client,
-		reader: reader,
+		file:       file,
+		paneID:     paneID,
+		client:     client,
+		reader:     reader,
+		helpConfig: help,
 	}
 	if file == "" {
 		m.warning = "preview file is unset (HERDR_PREVIEW_FILE)"
@@ -290,6 +296,14 @@ func (m *PreviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lightBackground = !msg.IsDark()
 	case previewLoadMsg:
 		return m, m.applyPreviewLoad(msg)
+	case helpResultMsg:
+		m.helpPending = false
+		if msg.err != "" {
+			m.warning = addWarning(m.warning, "Help: "+msg.err)
+			if !m.loading {
+				m.status = m.readyStatus()
+			}
+		}
 	case previewToastTimeoutMsg:
 		if msg.seq == m.toastSeq {
 			m.toast = ""
@@ -300,6 +314,8 @@ func (m *PreviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "h":
+			return m, m.requestHelp()
 		case "r":
 			return m, m.reloadCommand()
 		case "up", "k":
@@ -521,6 +537,31 @@ func (m *PreviewModel) showToast(text string) tea.Cmd {
 	return tea.Tick(previewToastDuration, func(time.Time) tea.Msg {
 		return previewToastTimeoutMsg{seq: seq}
 	})
+}
+
+// requestHelp opens the preview help popup. A nil client (the composition
+// root leaves it unset outside a Herdr pane) or an empty pane id keeps the
+// preview state untouched and surfaces a footer warning; repeated presses
+// while a launch is in flight are ignored so the popup is never opened
+// twice.
+func (m *PreviewModel) requestHelp() tea.Cmd {
+	if m.helpConfig.Client == nil || m.paneID == "" {
+		m.warning = addWarning(m.warning, "Help unavailable: no Herdr context")
+		m.status = m.readyStatus()
+		return nil
+	}
+	if m.helpPending {
+		return nil
+	}
+	m.helpPending = true
+	client := m.helpConfig.Client
+	return func() tea.Msg {
+		_, err := client.OpenHelp(HelpOpenRequest{Context: helpPreviewContext})
+		if err != nil {
+			return helpResultMsg{err: sanitizeDisplay(err.Error())}
+		}
+		return helpResultMsg{}
+	}
 }
 
 // copySelection extracts the selection into a clipboard command. An empty
@@ -902,10 +943,8 @@ func (m *PreviewModel) renderFooter() string {
 	if m.status != m.readyStatus() {
 		return m.renderLine(m.status)
 	}
-	help := renderShortcut(previewHelpWrapKey, previewHelpWrapLabel) + helpGroupSeparator +
-		renderShortcut(previewHelpWhitespaceKey, previewHelpWhitespaceLabel) + helpGroupSeparator +
-		renderShortcut(previewHelpCopyKey, previewHelpCopyLabel) + helpGroupSeparator +
-		renderShortcut(previewHelpReloadKey, previewHelpReloadLabel) + helpGroupSeparator +
+	help := renderShortcut(previewHelpCopyKey, previewHelpCopyLabel) + helpGroupSeparator +
+		renderShortcut(previewHelpHelpKey, previewHelpHelpLabel) + helpGroupSeparator +
 		renderShortcut(previewHelpCloseKey, previewHelpCloseLabel)
 	return renderStyledLineAt(strings.Repeat(" ", m.contentLeftPadding())+help, lipgloss.NewStyle(), m.width)
 }

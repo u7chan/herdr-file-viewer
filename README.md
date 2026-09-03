@@ -7,6 +7,10 @@
 The read-only file viewer plugin for Herdr resolves its launch root once and
 shows a lazy, keyboard-driven filesystem tree. Directory reads run
 asynchronously so navigation, scrolling, and resize remain responsive.
+The displayed root can be re-opened onto the selected directory (`C`) or
+onto the parent of the current directory (`Backspace`), and the process
+working directory follows the display root. A Herdr popup shows the full
+key reference from the tree or the preview with `h`.
 
 ## Minimum scope
 
@@ -84,6 +88,10 @@ directory and pane splits inherit that pane's working directory, so without
 this change a split opened from the viewer pane would start in the plugin
 directory instead of the directory being browsed.
 
+Root moves keep the same invariant: `C` below and `Backspace` above change
+the displayed root and chdir into it as one operation, so splits opened
+from the viewer always inherit the directory being browsed.
+
 ### Operations
 
 - `Up` / `Down` or `j` / `k`: move the selection one row without reading the filesystem; the viewport follows it.
@@ -91,6 +99,24 @@ directory instead of the directory being browsed.
 - `Ctrl+b` / `Ctrl+f` or `PageUp` / `PageDown`: move by one viewport with a one-row overlap.
 - `Home` / `End`: move to the first / last visible row.
 - `Right` / `Left`: expand/collapse a directory or move to its parent.
+- `C`: re-open the selected real directory as the new tree root, chdir into
+  it, and reload the new root asynchronously. The selection settles on the
+  new sticky root row. Files, symlinks (their targets are never tracked),
+  and the sticky root row itself are ignored; `Enter` stays the preview key.
+- `Backspace`: while the sticky root row is selected, re-open the parent
+  directory as the new tree root and chdir into it; after the parent loads
+  the previous root directory is selected again (falling back to the sticky
+  root when it is gone, hidden, or unreadable). `/` has no parent and stays
+  a no-op; anywhere else the key is ignored. A root whose read fails shows
+  the sticky root with an error status, recoverable by pressing
+  `Backspace` again. A failed cwd change keeps the current tree and its
+  expansion and selection untouched and shows a warning in the footer.
+  An open preview pane survives root moves.
+- `h`: open the Help popup (`tree` reference) as a focused Herdr popup;
+  `h` again, `Esc`, or `q` inside the popup closes only it. Repeated
+  presses while a launch is in flight never open a second popup. Without
+  a Herdr context, or when the launch fails, a warning appears in the
+  footer and the pane keeps working; there is no in-pane help fallback.
 - Left click: toggle a directory; open a preview for a file or a symlink that resolves to a file; the root is selection-only.
 - Mouse wheel over the tree: scroll three rows per wheel event.
 - The rightmost tree column is a scrollbar. Click its track to jump, or drag its thumb to scroll. Scrollbar movement keeps the selected row in the viewport and does not read the filesystem.
@@ -118,11 +144,12 @@ pane, a full-width `─` divider follows the title and another one separates the
 tree from the bottom-fixed Footer. The root HOME path is pinned immediately
 below the title divider; only its descendants scroll. The tree and Footer have
 a small left inset. The Footer contains
-`space copy    r reload    q quit` during normal operation, with the key labels emphasized
+`space copy    h help    q quit` during normal operation, with the key labels emphasized
 and the action labels muted; loading, warning, or error status replaces those
 hints when relevant, and a brief toast (`Reloaded`) appears for a few
-seconds after `r`. Very small panes omit dividers when there is no room for
-them.
+seconds after `r`. The remaining shortcuts (`/`, `n`, `N`, `r`, `C`,
+`Backspace`, `w`, `s`) stay bound and are listed in the Help popup. Very
+small panes omit dividers when there is no room for them.
 The divider and scrollbar use portable box-drawing/block glyphs rather than a
 Nerd Font-specific glyph; the file tree icons remain Nerd Font glyphs.
 
@@ -133,6 +160,23 @@ exceed the pane width. Symlinks are displayed but never followed.
 Entries named `.git` are hidden at every tree depth; other dotfiles remain
 visible.
 
+### Help popup
+
+`h` in the tree or the preview opens the plugin's `help` entrypoint as a
+focused Herdr popup pane. One shared `help` entrypoint renders the caller's
+reference: the popup opened from the tree lists the tree operations
+(movement, page moves, expand/collapse, root move, preview, find, reload,
+copy, mouse and scrollbar, quit); the popup opened from the preview lists
+the preview operations (vertical and horizontal scrolling, wrap, spaces,
+reload, selection copy, mouse and scrollbars, close). The caller context
+travels in the `HERDR_HELP_CONTEXT` environment value. Inside the popup, `h`,
+`Esc`, and `q` close only the popup, so the key reference never leaks
+keystrokes back to the pane underneath. While a launch is in flight,
+repeated `h` presses are ignored, so the popup is never opened twice.
+Without a Herdr context, or when the popup launch fails, the caller keeps
+its state, a warning is shown in its footer, and there is no in-pane
+fallback help.
+
 ### Preview pane
 
 `Enter` in the tree opens the `preview` entrypoint as a right split without
@@ -142,7 +186,7 @@ is not used), and shows a snapshot of its head.
 The layout mirrors the tree:
 a centered title (absolute path, tail-truncated with `…`), dividers, a body
 with a line-number gutter and a vertical divider, and the footer
-`w wrap    s spaces    space copy    r reload    q close`.
+`space copy    h help    q close`.
 
 Previewability is classified before rendering: known image, video, audio, and
 binary extensions (`png`, `mp4`, `mp3`, `zip`, `exe`, `so`, `pdf`, ...) show
@@ -179,6 +223,7 @@ Scrolling in the preview:
   successfully displayed content is kept while a warning is shown. If the
   initial read failed, `r` retries it. When `HERDR_PREVIEW_FILE` is unset, `r`
   does nothing.
+- `h`: open the Help popup with the preview reference (see above).
 - Left-drag across preview body text selects and highlights it. Selection is
   visual only until `space` copies it (below). Clicking again resets the
   selection; vertical and horizontal scrolling keep it attached to the text,

@@ -18,10 +18,26 @@ const (
 	PaneIDEnv       = "HERDR_PANE_ID"
 	WorkspaceIDEnv  = "HERDR_WORKSPACE_ID"
 	PreviewFileEnv  = "HERDR_PREVIEW_FILE"
+	// HelpContextEnv tells the help entrypoint which caller opened it.
+	HelpContextEnv = "HERDR_HELP_CONTEXT"
 	// PreviewEntrypointID identifies the preview pane entrypoint.
 	PreviewEntrypointID = "preview"
-	paneNotFoundCode    = "pane_not_found"
+	// HelpEntrypointID identifies the popup help pane entrypoint.
+	HelpEntrypointID = "help"
+	paneNotFoundCode = "pane_not_found"
 )
+
+// HelpContext returns the caller context passed through HelpContextEnv for
+// the help entrypoint: "tree" or "preview". A missing or unknown value
+// falls back to "tree".
+func HelpContext() string {
+	switch os.Getenv(HelpContextEnv) {
+	case "preview":
+		return "preview"
+	default:
+		return "tree"
+	}
+}
 
 // EntrypointID returns HERDR_PLUGIN_ENTRYPOINT_ID, the pane entrypoint that
 // launched this process.
@@ -32,6 +48,11 @@ func EntrypointID() string {
 // IsPreviewEntrypoint reports whether this process runs the preview pane.
 func IsPreviewEntrypoint() bool {
 	return EntrypointID() == PreviewEntrypointID
+}
+
+// IsHelpEntrypoint reports whether this process runs the help popup pane.
+func IsHelpEntrypoint() bool {
+	return EntrypointID() == HelpEntrypointID
 }
 
 // PaneID returns HERDR_PANE_ID, the caller's own pane identity.
@@ -61,7 +82,10 @@ type OpenPaneRequest struct {
 	Placement  string
 	TargetPane string
 	Direction  string
-	Env        []string // KEY=VALUE pairs propagated to the launched process
+	// Focus requests the keyboard focus move to the opened pane. The zero
+	// value keeps the focus in the caller's pane.
+	Focus bool
+	Env   []string // KEY=VALUE pairs propagated to the launched process
 }
 
 // ReportMetadataRequest describes one `herdr pane report-metadata`
@@ -138,23 +162,42 @@ func resolvePaneBinary(lookupEnv func(string) (string, bool)) string {
 	return "herdr"
 }
 
-// OpenPane runs `herdr plugin pane open` with `--no-focus` so the keyboard
-// focus stays in the caller's pane.
+// OpenPane runs `herdr plugin pane open`. Focused overlays pass --focus;
+// every other pane keeps the keyboard focus in the caller's pane through
+// --no-focus. The placement flag is omitted when the request leaves it
+// empty, letting the manifest's pane declaration (overlay, popup, split,
+// or zoomed and, for popups, the fixed size) take effect; a non-empty
+// placement is passed through explicitly. The target flag is included only
+// when a target pane is given: overlay and popup placements always target
+// the active pane and reject an explicit target, while split and zoomed
+// placements require one. The direction flag is omitted when the placement
+// does not use one (overlay).
 func (c *CLIPaneClient) OpenPane(request OpenPaneRequest) (string, error) {
 	args := []string{
 		"plugin", "pane", "open",
 		"--plugin", request.Plugin,
 		"--entrypoint", request.Entrypoint,
-		"--placement", request.Placement,
-		"--target-pane", request.TargetPane,
-		"--direction", request.Direction,
-		"--no-focus",
+	}
+	if request.Placement != "" {
+		args = append(args, "--placement", request.Placement)
+	}
+	if request.TargetPane != "" {
+		args = append(args, "--target-pane", request.TargetPane)
+	}
+	if request.Direction != "" {
+		args = append(args, "--direction", request.Direction)
+	}
+	if request.Focus {
+		args = append(args, "--focus")
+	} else {
+		args = append(args, "--no-focus")
 	}
 	for _, env := range request.Env {
 		args = append(args, "--env", env)
 	}
 
 	var response struct {
+		Type       string `json:"type"`
 		PluginPane struct {
 			Pane struct {
 				PaneID string `json:"pane_id"`
@@ -165,6 +208,12 @@ func (c *CLIPaneClient) OpenPane(request OpenPaneRequest) (string, error) {
 		return "", err
 	}
 	if response.PluginPane.Pane.PaneID == "" {
+		// popup placements answer with a bare ok envelope and no pane id:
+		// the popup owns no tracked pane. Every other placement must
+		// report the opened pane, so a missing id stays an error there.
+		if response.Type == "ok" {
+			return "", nil
+		}
 		return "", fmt.Errorf("open response contains no pane_id")
 	}
 	return response.PluginPane.Pane.PaneID, nil

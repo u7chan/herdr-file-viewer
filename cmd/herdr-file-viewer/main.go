@@ -26,6 +26,9 @@ func run() error {
 	if herdr.IsPreviewEntrypoint() {
 		return runPreview()
 	}
+	if herdr.IsHelpEntrypoint() {
+		return runHelp()
+	}
 
 	root, err := herdr.ResolveRoot()
 	if err != nil {
@@ -35,16 +38,27 @@ func run() error {
 		return err
 	}
 
-	model := app.NewModelWithPreview(root.Path, root.Warning, app.PreviewConfig{
-		Client:      newPreviewClient(),
-		TargetPane:  herdr.PaneID(),
-		WorkspaceID: herdr.WorkspaceID(),
+	model := app.NewModelConfigured(root.Path, root.Warning, app.ModelConfig{
+		Preview: app.PreviewConfig{
+			Client:      newPreviewClient(),
+			TargetPane:  herdr.PaneID(),
+			WorkspaceID: herdr.WorkspaceID(),
+		},
+		Help: newHelpConfig(),
+		// Root moves keep the process working directory in sync with the
+		// display root so Herdr attributes the viewed directory to this pane.
+		Chdir: herdr.ChdirRoot,
 	})
 	return runProgram(model)
 }
 
 func runPreview() error {
-	model := app.NewPreviewModel(herdr.PreviewFile(), newPreviewClient(), herdr.PaneID())
+	model := app.NewPreviewModelWithConfig(herdr.PreviewFile(), newPreviewClient(), herdr.PaneID(), newHelpConfig())
+	return runProgram(model)
+}
+
+func runHelp() error {
+	model := app.NewHelpModel(herdr.HelpContext())
 	return runProgram(model)
 }
 
@@ -113,5 +127,41 @@ func (a paneClientAdapter) TagPreview(paneID, file string) error {
 		PaneID: paneID,
 		Source: pluginID,
 		Tokens: []string{app.PreviewMetadataToken + "=" + file},
+	})
+}
+
+// newHelpConfig wires the help popup capability when the viewer runs
+// inside a Herdr pane. Popup panes always target the active pane, so
+// outside a pane there is no active target; the nil client makes h a
+// warning-only no-op there.
+func newHelpConfig() app.HelpConfig {
+	if herdr.PaneID() == "" {
+		return app.HelpConfig{}
+	}
+	return app.HelpConfig{Client: newHelpClient()}
+}
+
+// newHelpClient adapts the herdr CLI implementation to the app-side help
+// interface, fixing the plugin identity, the focus, and the help context
+// environment value at the composition root; the popup placement itself
+// stays in the manifest.
+func newHelpClient() app.HelpClient {
+	return helpClientAdapter{client: herdr.NewCLIPaneClient()}
+}
+
+type helpClientAdapter struct {
+	client herdr.PaneClient
+}
+
+func (a helpClientAdapter) OpenHelp(request app.HelpOpenRequest) (string, error) {
+	// The help pane is declared popup with a fixed size in herdr-plugin.toml;
+	// the placement and size stay in the manifest, and the CLI invocation
+	// omits --placement so herdr uses the declared popup definition. Popup
+	// panes always target the active pane, so no target is passed either.
+	return a.client.OpenPane(herdr.OpenPaneRequest{
+		Plugin:     pluginID,
+		Entrypoint: herdr.HelpEntrypointID,
+		Focus:      true,
+		Env:        []string{herdr.HelpContextEnv + "=" + request.Context},
 	})
 }
