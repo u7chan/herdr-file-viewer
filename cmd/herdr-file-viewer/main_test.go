@@ -135,7 +135,7 @@ func TestPreviewClientAdapterTagPreviewReportsMetadata(t *testing.T) {
 	}
 }
 
-func TestHelpClientAdapterOpenHelpFixesPluginOverlayFocusAndContext(t *testing.T) {
+func TestHelpClientAdapterOpenHelpFixesPluginManifestPopupAndContext(t *testing.T) {
 	stub := &stubPaneClient{openID: "wY:h1"}
 	paneID, err := (helpClientAdapter{client: stub}).OpenHelp(app.HelpOpenRequest{Context: "preview"})
 	if err != nil || paneID != "wY:h1" {
@@ -144,12 +144,14 @@ func TestHelpClientAdapterOpenHelpFixesPluginOverlayFocusAndContext(t *testing.T
 	want := herdr.OpenPaneRequest{
 		Plugin:     pluginID,
 		Entrypoint: herdr.HelpEntrypointID,
-		Placement:  "overlay",
-		Focus:      true,
-		Env:        []string{herdr.HelpContextEnv + "=preview"},
+		// placement stays empty: the popup declaration (placement and
+		// size) lives in herdr-plugin.toml and the CLI invocation must not
+		// override it with --placement.
+		Focus: true,
+		Env:   []string{herdr.HelpContextEnv + "=preview"},
 	}
 	if !reflect.DeepEqual(stub.openRequest, want) {
-		t.Fatalf("OpenPane() request = %#v, want %#v (overlay targets the active pane, so no target)", stub.openRequest, want)
+		t.Fatalf("OpenPane() request = %#v, want %#v (popup targets the active pane, so no target)", stub.openRequest, want)
 	}
 
 	stub.openErr = errors.New("daemon down")
@@ -168,7 +170,6 @@ func TestHelpClientAdapterOpenHelpKeepsEveryCallerContextDistinct(t *testing.T) 
 	treeWant := herdr.OpenPaneRequest{
 		Plugin:     pluginID,
 		Entrypoint: herdr.HelpEntrypointID,
-		Placement:  "overlay",
 		Focus:      true,
 		Env:        []string{herdr.HelpContextEnv + "=tree"},
 	}

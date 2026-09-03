@@ -164,16 +164,22 @@ func resolvePaneBinary(lookupEnv func(string) (string, bool)) string {
 
 // OpenPane runs `herdr plugin pane open`. Focused overlays pass --focus;
 // every other pane keeps the keyboard focus in the caller's pane through
-// --no-focus. The target flag is included only when a target pane is given:
-// overlay and popup placements always target the active pane and reject an
-// explicit target, while split and zoomed placements require one. The
-// direction flag is omitted when the placement does not use one (overlay).
+// --no-focus. The placement flag is omitted when the request leaves it
+// empty, letting the manifest's pane declaration (overlay, popup, split,
+// or zoomed and, for popups, the fixed size) take effect; a non-empty
+// placement is passed through explicitly. The target flag is included only
+// when a target pane is given: overlay and popup placements always target
+// the active pane and reject an explicit target, while split and zoomed
+// placements require one. The direction flag is omitted when the placement
+// does not use one (overlay).
 func (c *CLIPaneClient) OpenPane(request OpenPaneRequest) (string, error) {
 	args := []string{
 		"plugin", "pane", "open",
 		"--plugin", request.Plugin,
 		"--entrypoint", request.Entrypoint,
-		"--placement", request.Placement,
+	}
+	if request.Placement != "" {
+		args = append(args, "--placement", request.Placement)
 	}
 	if request.TargetPane != "" {
 		args = append(args, "--target-pane", request.TargetPane)
@@ -191,6 +197,7 @@ func (c *CLIPaneClient) OpenPane(request OpenPaneRequest) (string, error) {
 	}
 
 	var response struct {
+		Type       string `json:"type"`
 		PluginPane struct {
 			Pane struct {
 				PaneID string `json:"pane_id"`
@@ -201,6 +208,12 @@ func (c *CLIPaneClient) OpenPane(request OpenPaneRequest) (string, error) {
 		return "", err
 	}
 	if response.PluginPane.Pane.PaneID == "" {
+		// popup placements answer with a bare ok envelope and no pane id:
+		// the popup owns no tracked pane. Every other placement must
+		// report the opened pane, so a missing id stays an error there.
+		if response.Type == "ok" {
+			return "", nil
+		}
 		return "", fmt.Errorf("open response contains no pane_id")
 	}
 	return response.PluginPane.Pane.PaneID, nil

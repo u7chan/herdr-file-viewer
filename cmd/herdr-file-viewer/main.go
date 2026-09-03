@@ -153,12 +153,13 @@ type helpClientAdapter struct {
 }
 
 func (a helpClientAdapter) OpenHelp(request app.HelpOpenRequest) (string, error) {
-	// Overlay panes always target the active pane; passing a target would be
-	// rejected by herdr's CLI validation, so the target stays unset.
+	// The help pane is declared popup with a fixed size in herdr-plugin.toml;
+	// the placement and size stay in the manifest, and the CLI invocation
+	// omits --placement so herdr uses the declared popup definition. Popup
+	// panes always target the active pane, so no target is passed either.
 	return a.client.OpenPane(herdr.OpenPaneRequest{
 		Plugin:     pluginID,
 		Entrypoint: herdr.HelpEntrypointID,
-		Placement:  "overlay",
 		Focus:      true,
 		Env:        []string{herdr.HelpContextEnv + "=" + request.Context},
 	})

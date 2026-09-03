@@ -108,29 +108,45 @@ func TestOpenPaneReportsMissingPaneIDAndErrors(t *testing.T) {
 	}
 }
 
-func TestOpenPaneUsesFocusFlagAndOmitsDirectionAndTargetForOverlays(t *testing.T) {
+func TestOpenPaneAcceptsBareOKResponseForPopupPlacements(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"id":"cli:plugin","result":{"type":"ok"}}`}
+	client := &CLIPaneClient{runner: runner}
+
+	paneID, err := client.OpenPane(OpenPaneRequest{
+		Plugin:     "u7chan.file-viewer",
+		Entrypoint: "help",
+		Focus:      true,
+		Env:        []string{"HERDR_HELP_CONTEXT=tree"},
+	})
+	if err != nil {
+		t.Fatalf("OpenPane() error = %v, want nil for bare ok popup response", err)
+	}
+	if paneID != "" {
+		t.Fatalf("OpenPane() pane ID = %q, want empty for popup", paneID)
+	}
+}
+
+func TestOpenPaneOmitsPlacementWhenManifestDeclaresItAndOmitsDirectionAndTargetForOverlays(t *testing.T) {
 	runner := &fakeRunner{stdout: `{"result":{"plugin_pane":{"pane":{"pane_id":"wY:h1"}}}}`}
 	client := &CLIPaneClient{runner: runner}
 
 	paneID, err := client.OpenPane(OpenPaneRequest{
 		Plugin:     "u7chan.file-viewer",
 		Entrypoint: "help",
-		Placement:  "overlay",
 		Focus:      true,
 		Env:        []string{"HERDR_HELP_CONTEXT=tree"},
 	})
 	if err != nil || paneID != "wY:h1" {
-		t.Fatalf("OpenPane() = %q, %v; want overlay pane id without error", paneID, err)
+		t.Fatalf("OpenPane() = %q, %v; want popup pane id without error", paneID, err)
 	}
 	want := []string{"plugin", "pane", "open",
 		"--plugin", "u7chan.file-viewer",
 		"--entrypoint", "help",
-		"--placement", "overlay",
 		"--focus",
 		"--env", "HERDR_HELP_CONTEXT=tree",
 	}
 	if len(runner.args) != 1 || !reflect.DeepEqual(runner.args[0], want) {
-		t.Fatalf("OpenPane() args = %v, want %v (overlay targets the active pane, so no --target-pane)", runner.args, want)
+		t.Fatalf("OpenPane() args = %v, want %v (popup declared in manifest, no --placement; popup targets the active pane, so no --target-pane)", runner.args, want)
 	}
 }
 
