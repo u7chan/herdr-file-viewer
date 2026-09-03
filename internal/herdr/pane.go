@@ -22,7 +22,7 @@ const (
 	HelpContextEnv = "HERDR_HELP_CONTEXT"
 	// PreviewEntrypointID identifies the preview pane entrypoint.
 	PreviewEntrypointID = "preview"
-	// HelpEntrypointID identifies the overlay help pane entrypoint.
+	// HelpEntrypointID identifies the popup help pane entrypoint.
 	HelpEntrypointID = "help"
 	paneNotFoundCode = "pane_not_found"
 )
@@ -50,7 +50,7 @@ func IsPreviewEntrypoint() bool {
 	return EntrypointID() == PreviewEntrypointID
 }
 
-// IsHelpEntrypoint reports whether this process runs the help overlay pane.
+// IsHelpEntrypoint reports whether this process runs the help popup pane.
 func IsHelpEntrypoint() bool {
 	return EntrypointID() == HelpEntrypointID
 }

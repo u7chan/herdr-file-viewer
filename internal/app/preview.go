@@ -198,7 +198,7 @@ func NewPreviewModel(file string, client PreviewClient, paneID string, readers .
 	return NewPreviewModelWithConfig(file, client, paneID, HelpConfig{}, readers...)
 }
 
-// NewPreviewModelWithConfig additionally wires the help overlay capability
+// NewPreviewModelWithConfig additionally wires the help popup capability
 // behind the h key.
 func NewPreviewModelWithConfig(file string, client PreviewClient, paneID string, help HelpConfig, readers ...filesystem.FileReader) *PreviewModel {
 	reader := filesystem.FileReader(filesystem.NewLocal())
@@ -539,10 +539,10 @@ func (m *PreviewModel) showToast(text string) tea.Cmd {
 	})
 }
 
-// requestHelp opens the preview help overlay. A nil client (the composition
+// requestHelp opens the preview help popup. A nil client (the composition
 // root leaves it unset outside a Herdr pane) or an empty pane id keeps the
 // preview state untouched and surfaces a footer warning; repeated presses
-// while a launch is in flight are ignored so one overlay is never created
+// while a launch is in flight are ignored so the popup is never opened
 // twice.
 func (m *PreviewModel) requestHelp() tea.Cmd {
 	if m.helpConfig.Client == nil || m.paneID == "" {

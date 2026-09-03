@@ -9,41 +9,41 @@ import (
 
 const (
 	// helpTreeContext and helpPreviewContext identify the caller of the
-	// help overlay through HelpOpenRequest.Context.
+	// help popup through HelpOpenRequest.Context.
 	helpTreeContext    = "tree"
 	helpPreviewContext = "preview"
 )
 
-// HelpOpenRequest describes one Help overlay launch.
+// HelpOpenRequest describes one Help popup launch.
 type HelpOpenRequest struct {
 	// Context identifies the caller: helpTreeContext or helpPreviewContext.
 	Context string
 }
 
-// HelpClient is the Herdr overlay capability the tree and preview models
+// HelpClient is the Herdr popup capability the tree and preview models
 // need, kept as an interface so the composition root can inject the
 // subprocess implementation and tests can supply deterministic doubles.
 type HelpClient interface {
-	// OpenHelp opens the help entrypoint as a focused overlay and returns
-	// the new pane ID. Overlays always target the active pane.
+	// OpenHelp opens the help entrypoint as a focused popup and returns
+	// the new pane ID. Popup panes always target the active pane.
 	OpenHelp(request HelpOpenRequest) (paneID string, err error)
 }
 
-// HelpConfig wires a model to the help-overlay capability. A nil Client
+// HelpConfig wires a model to the help popup capability. A nil Client
 // keeps h a warning-only no-op, which is how the composition root expresses
 // a missing Herdr pane context.
 type HelpConfig struct {
 	Client HelpClient
 }
 
-// helpResultMsg is the outcome of one help overlay launch. The opened pane
+// helpResultMsg is the outcome of one help popup launch. The opened pane
 // takes the keyboard focus itself, so a successful launch needs no further
 // bookkeeping in the caller.
 type helpResultMsg struct {
 	err string
 }
 
-// helpEntry is one key-reference row of a help overlay.
+// helpEntry is one key-reference row of the help popup.
 type helpEntry struct {
 	keys  string
 	label string
@@ -80,16 +80,16 @@ var helpContent = map[string][]helpEntry{
 	},
 }
 
-// HelpModel is the read-only Herdr overlay help pane. It renders the key
+// HelpModel is the read-only Herdr popup help pane. It renders the key
 // reference of its caller context and closes itself on h, Esc, or q so the
-// overlay never leaks keys back to the tree or preview underneath.
+// popup never leaks keys back to the tree or preview underneath.
 type HelpModel struct {
 	context string
 	width   int
 	height  int
 }
 
-// NewHelpModel constructs the help overlay for one caller context. An
+// NewHelpModel constructs the help popup for one caller context. An
 // unknown or empty context falls back to the tree reference; the fallback
 // keeps the entrypoint usable when the launch environment was stripped.
 func NewHelpModel(context string) *HelpModel {
@@ -99,13 +99,13 @@ func NewHelpModel(context string) *HelpModel {
 	return &HelpModel{context: context}
 }
 
-// Init has no startup work: the overlay renders from its constructor state.
+// Init has no startup work: the popup renders from its constructor state.
 func (m *HelpModel) Init() tea.Cmd {
 	return nil
 }
 
 // Update applies resizes and the close keys. Every other key is ignored so
-// the overlay cannot drive the pane underneath.
+// the popup cannot drive the pane underneath.
 func (m *HelpModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m == nil {
 		return m, nil

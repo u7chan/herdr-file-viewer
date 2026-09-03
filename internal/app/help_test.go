@@ -14,7 +14,7 @@ import (
 	"github.com/u7chan/herdr-file-viewer/internal/filesystem"
 )
 
-// stubHelpClient records every overlay launch and answers with a canned
+// stubHelpClient records every help popup launch and answers with a canned
 // result.
 type stubHelpClient struct {
 	requests []HelpOpenRequest

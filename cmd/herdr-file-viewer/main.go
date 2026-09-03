@@ -130,8 +130,8 @@ func (a paneClientAdapter) TagPreview(paneID, file string) error {
 	})
 }
 
-// newHelpConfig wires the help overlay capability when the viewer runs
-// inside a Herdr pane. Overlay panes always target the active pane, so
+// newHelpConfig wires the help popup capability when the viewer runs
+// inside a Herdr pane. Popup panes always target the active pane, so
 // outside a pane there is no active target; the nil client makes h a
 // warning-only no-op there.
 func newHelpConfig() app.HelpConfig {
@@ -142,8 +142,9 @@ func newHelpConfig() app.HelpConfig {
 }
 
 // newHelpClient adapts the herdr CLI implementation to the app-side help
-// interface, fixing the plugin identity, the overlay placement, the focus,
-// and the help context environment value at the composition root.
+// interface, fixing the plugin identity, the focus, and the help context
+// environment value at the composition root; the popup placement itself
+// stays in the manifest.
 func newHelpClient() app.HelpClient {
 	return helpClientAdapter{client: herdr.NewCLIPaneClient()}
 }

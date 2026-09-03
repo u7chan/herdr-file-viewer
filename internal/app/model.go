@@ -145,7 +145,7 @@ type Model struct {
 }
 
 // ModelConfig carries the optional composition-root adapters for the tree
-// model: the preview pane capability, the help overlay capability, and the
+// model: the preview pane capability, the help popup capability, and the
 // process cwd sync used by root moves.
 type ModelConfig struct {
 	Preview PreviewConfig
@@ -170,7 +170,7 @@ func NewModelWithPreview(root, warning string, preview PreviewConfig, fileSystem
 }
 
 // NewModelConfigured wires the optional composition-root adapters: preview
-// activation, the help overlay, and the cwd sync behind root moves. A zero
+// activation, the help popup pane, and the cwd sync behind root moves. A zero
 // config keeps all three capabilities no-ops.
 func NewModelConfigured(root, warning string, config ModelConfig, fileSystems ...filesystem.FileSystem) *Model {
 	fileSystem := filesystem.FileSystem(filesystem.NewLocal())
@@ -839,10 +839,10 @@ func (m *Model) restoreParentSelection() {
 	m.offset = 0
 }
 
-// requestHelp opens the tree help overlay. A nil client (the composition
+// requestHelp opens the tree help popup. A nil client (the composition
 // root leaves it unset outside a Herdr pane) or a failed launch keeps the
 // tree state untouched and surfaces a footer warning; repeated presses while
-// a launch is in flight are ignored so one overlay is never created twice.
+// a launch is in flight are ignored so the popup is never opened twice.
 func (m *Model) requestHelp() tea.Cmd {
 	if m.helpConfig.Client == nil {
 		m.warning = addWarning(m.warning, "Help unavailable: no Herdr context")

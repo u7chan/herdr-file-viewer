@@ -9,7 +9,7 @@ shows a lazy, keyboard-driven filesystem tree. Directory reads run
 asynchronously so navigation, scrolling, and resize remain responsive.
 The displayed root can be re-opened onto the selected directory (`C`) or
 onto the parent of the current directory (`Backspace`), and the process
-working directory follows the display root. A Herdr overlay shows the full
+working directory follows the display root. A Herdr popup shows the full
 key reference from the tree or the preview with `h`.
 
 ## Minimum scope
@@ -112,9 +112,9 @@ from the viewer always inherit the directory being browsed.
   `Backspace` again. A failed cwd change keeps the current tree and its
   expansion and selection untouched and shows a warning in the footer.
   An open preview pane survives root moves.
-- `h`: open the Help overlay (`tree` reference) as a focused Herdr overlay;
-  `h` again, `Esc`, or `q` inside the overlay closes only it. Repeated
-  presses while a launch is in flight never open a second overlay. Without
+- `h`: open the Help popup (`tree` reference) as a focused Herdr popup;
+  `h` again, `Esc`, or `q` inside the popup closes only it. Repeated
+  presses while a launch is in flight never open a second popup. Without
   a Herdr context, or when the launch fails, a warning appears in the
   footer and the pane keeps working; there is no in-pane help fallback.
 - Left click: toggle a directory; open a preview for a file or a symlink that resolves to a file; the root is selection-only.
@@ -148,7 +148,7 @@ a small left inset. The Footer contains
 and the action labels muted; loading, warning, or error status replaces those
 hints when relevant, and a brief toast (`Reloaded`) appears for a few
 seconds after `r`. The remaining shortcuts (`/`, `n`, `N`, `r`, `C`,
-`Backspace`, `w`, `s`) stay bound and are listed in the Help overlay. Very
+`Backspace`, `w`, `s`) stay bound and are listed in the Help popup. Very
 small panes omit dividers when there is no room for them.
 The divider and scrollbar use portable box-drawing/block glyphs rather than a
 Nerd Font-specific glyph; the file tree icons remain Nerd Font glyphs.
@@ -160,7 +160,7 @@ exceed the pane width. Symlinks are displayed but never followed.
 Entries named `.git` are hidden at every tree depth; other dotfiles remain
 visible.
 
-### Help overlay
+### Help popup
 
 `h` in the tree or the preview opens the plugin's `help` entrypoint as a
 focused Herdr popup pane. One shared `help` entrypoint renders the caller's
@@ -223,7 +223,7 @@ Scrolling in the preview:
   successfully displayed content is kept while a warning is shown. If the
   initial read failed, `r` retries it. When `HERDR_PREVIEW_FILE` is unset, `r`
   does nothing.
-- `h`: open the Help overlay with the preview reference (see above).
+- `h`: open the Help popup with the preview reference (see above).
 - Left-drag across preview body text selects and highlights it. Selection is
   visual only until `space` copies it (below). Clicking again resets the
   selection; vertical and horizontal scrolling keep it attached to the text,
