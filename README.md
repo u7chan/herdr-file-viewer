@@ -163,19 +163,19 @@ visible.
 ### Help overlay
 
 `h` in the tree or the preview opens the plugin's `help` entrypoint as a
-focused Herdr overlay pane. One shared `help` entrypoint renders the caller's
-reference: the overlay opened from the tree is titled `File Viewer Help` and
-lists the tree operations (movement, page moves, expand/collapse, root move,
-preview, find, reload, copy, mouse and scrollbar, quit); the overlay opened
-from the preview is titled `Preview Help` and lists the preview operations
-(vertical and horizontal scrolling, wrap, spaces, reload, selection copy,
-mouse and scrollbars, close). The caller context travels in the
-`HERDR_HELP_CONTEXT` environment value. Inside the overlay, `h`, `Esc`, and
-`q` close only the overlay, so the key reference never leaks keystrokes back
-to the pane underneath. While a launch is in flight, repeated `h` presses are
-ignored, so the overlay is never opened twice. Without a Herdr context, or
-when the overlay launch fails, the caller keeps its state, a warning is
-shown in its footer, and there is no in-pane fallback help.
+focused Herdr popup pane. One shared `help` entrypoint renders the caller's
+reference: the popup opened from the tree lists the tree operations
+(movement, page moves, expand/collapse, root move, preview, find, reload,
+copy, mouse and scrollbar, quit); the popup opened from the preview lists
+the preview operations (vertical and horizontal scrolling, wrap, spaces,
+reload, selection copy, mouse and scrollbars, close). The caller context
+travels in the `HERDR_HELP_CONTEXT` environment value. Inside the popup, `h`,
+`Esc`, and `q` close only the popup, so the key reference never leaks
+keystrokes back to the pane underneath. While a launch is in flight,
+repeated `h` presses are ignored, so the popup is never opened twice.
+Without a Herdr context, or when the popup launch fails, the caller keeps
+its state, a warning is shown in its footer, and there is no in-pane
+fallback help.
 
 ### Preview pane
 

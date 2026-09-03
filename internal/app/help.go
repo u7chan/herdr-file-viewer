@@ -12,9 +12,6 @@ const (
 	// help overlay through HelpOpenRequest.Context.
 	helpTreeContext    = "tree"
 	helpPreviewContext = "preview"
-
-	helpTitleTree    = "File Viewer Help"
-	helpTitlePreview = "Preview Help"
 )
 
 // HelpOpenRequest describes one Help overlay launch.
@@ -126,8 +123,9 @@ func (m *HelpModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the title, divider, and the fixed reference rows for the
-// caller context, truncating each row to the pane width.
+// View renders the fixed reference rows for the caller context, truncating
+// each row to the pane width. The pane frame itself carries the title (the
+// popup bar), so no in-content header is drawn here.
 func (m *HelpModel) View() tea.View {
 	if m == nil {
 		view := tea.NewView("")
@@ -136,10 +134,7 @@ func (m *HelpModel) View() tea.View {
 		return view
 	}
 
-	lines := []string{renderStyledLineAt(m.helpTitle(), titleStyle, m.width)}
-	if headerDividerHeight(m.height) > 0 {
-		lines = append(lines, m.renderDivider())
-	}
+	lines := make([]string, 0, len(helpContent[m.context]))
 	for _, entry := range helpContent[m.context] {
 		lines = append(lines, m.renderHelpRow(entry))
 	}
@@ -151,17 +146,6 @@ func (m *HelpModel) View() tea.View {
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
 	return view
-}
-
-func (m *HelpModel) helpTitle() string {
-	if m.context == helpPreviewContext {
-		return helpTitlePreview
-	}
-	return helpTitleTree
-}
-
-func (m *HelpModel) renderDivider() string {
-	return renderStyledLineAt(strings.Repeat(dividerGlyph, m.width), dividerStyle, m.width)
 }
 
 func (m *HelpModel) renderHelpRow(entry helpEntry) string {

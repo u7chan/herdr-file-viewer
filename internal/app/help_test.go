@@ -218,12 +218,11 @@ func TestHelpWithoutPaneIDIsTreatedAsNoHerdrContext(t *testing.T) {
 	}
 }
 
-func TestHelpModelRendersContextSpecificTitlesAndOperations(t *testing.T) {
+func TestHelpModelRendersContextSpecificOperations(t *testing.T) {
 	tree := NewHelpModel(helpTreeContext)
 	tree.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	treeView := ansi.Strip(tree.View().Content)
 	for _, want := range []string{
-		helpTitleTree,
 		"C / Backspace",
 		"root move",
 		"/, n, N, Esc",
@@ -236,7 +235,7 @@ func TestHelpModelRendersContextSpecificTitlesAndOperations(t *testing.T) {
 			t.Fatalf("tree help view = %q, want %q", treeView, want)
 		}
 	}
-	if strings.Contains(treeView, helpTitlePreview) || strings.Contains(treeView, "horizontal scroll") {
+	if strings.Contains(treeView, "horizontal scroll") {
 		t.Fatalf("tree help view = %q, leaks preview reference rows", treeView)
 	}
 
@@ -244,7 +243,6 @@ func TestHelpModelRendersContextSpecificTitlesAndOperations(t *testing.T) {
 	preview.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	previewView := ansi.Strip(preview.View().Content)
 	for _, want := range []string{
-		helpTitlePreview,
 		"horizontal scroll",
 		"wrap",
 		"spaces",
@@ -256,7 +254,7 @@ func TestHelpModelRendersContextSpecificTitlesAndOperations(t *testing.T) {
 			t.Fatalf("preview help view = %q, want %q", previewView, want)
 		}
 	}
-	if strings.Contains(previewView, helpTitleTree) || strings.Contains(previewView, "root move") {
+	if strings.Contains(previewView, "root move") {
 		t.Fatalf("preview help view = %q, leaks tree reference rows", previewView)
 	}
 }
@@ -265,7 +263,7 @@ func TestHelpModelUnknownContextFallsBackToTreeReference(t *testing.T) {
 	model := NewHelpModel("bogus")
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	view := ansi.Strip(model.View().Content)
-	if !strings.Contains(view, helpTitleTree) || !strings.Contains(view, "root move") {
+	if !strings.Contains(view, "root move") {
 		t.Fatalf("fallback help view = %q, want the tree reference", view)
 	}
 }
