@@ -104,7 +104,8 @@ type Model struct {
 	findQuery      string
 	findAnchorPath string
 	lastQuery      string
-	// A cancelled search keeps lastQuery for n/N while removing its underline.
+	// A cancelled search or a preview launch keeps lastQuery for n/N while
+	// removing its underline.
 	findHighlightQuery string
 
 	// The zero value keeps the existing dark palette until detection succeeds.

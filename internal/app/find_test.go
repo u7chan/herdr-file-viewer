@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"io/fs"
 	"path/filepath"
 	"reflect"
@@ -397,6 +398,216 @@ func TestFindMouseDirectoryClickConfirmsBeforeExpanding(t *testing.T) {
 	model.Update(result)
 	if !directory.Loaded() || directory.Loading() {
 		t.Fatalf("post-find directory load state = loaded %v loading %v, want true false", directory.Loaded(), directory.Loading())
+	}
+}
+
+func TestFindPreviewEnterConsumesUnderlineAndKeepsRepeatNavigation(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "match-one"}, {Name: "match-two"}})
+	client := &stubPreviewClient{openPaneID: "wY:p9Z"}
+	model := NewModelWithPreview(root, "", PreviewConfig{Client: client, TargetPane: "wY:p3K", WorkspaceID: "wY"}, fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
+
+	model.UpdateKey(findTextKey("/"))
+	model.UpdateKey(findTextKey("match"))
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	first := findVisibleIndex(t, model, "match-one")
+	if model.selected != first || model.lastQuery != "match" || model.findHighlightQuery != "match" {
+		t.Fatalf("find confirm state = selected %d last %q highlight %q; want %d match match", model.selected, model.lastQuery, model.findHighlightQuery, first)
+	}
+
+	command := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if command == nil {
+		t.Fatal("file enter returned nil command")
+	}
+	model.Update(command().(previewResultMsg))
+	if model.findHighlightQuery != "" {
+		t.Fatalf("preview enter left underline %q, want cleared", model.findHighlightQuery)
+	}
+	if model.lastQuery != "match" {
+		t.Fatalf("preview enter changed lastQuery to %q, want match kept", model.lastQuery)
+	}
+	if got, want := client.openFiles, []string{filepath.Join(root, "match-one")}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("preview enter opened %v, want %v", got, want)
+	}
+
+	model.UpdateKey(tea.KeyPressMsg{Code: 'n'})
+	if got := model.selectedNode().Name(); got != "match-two" {
+		t.Fatalf("n after preview selected %q, want next match match-two", got)
+	}
+	model.UpdateKey(tea.KeyPressMsg{Code: 'N'})
+	if got := model.selectedNode().Name(); got != "match-one" {
+		t.Fatalf("N after preview selected %q, want previous match match-one", got)
+	}
+	if model.findHighlightQuery != "" {
+		t.Fatalf("repeat navigation re-enabled underline %q", model.findHighlightQuery)
+	}
+}
+
+func TestFindPreviewClickConsumesUnderlineAndKeepsLastQuery(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file.txt"}})
+	client := &stubPreviewClient{openPaneID: "wY:p9Z"}
+	model := NewModelWithPreview(root, "", PreviewConfig{Client: client, TargetPane: "wY:p3K", WorkspaceID: "wY"}, fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
+
+	model.UpdateKey(findTextKey("/"))
+	model.UpdateKey(findTextKey("file"))
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if model.findHighlightQuery != "file" || model.lastQuery != "file" {
+		t.Fatalf("find confirm state = highlight %q last %q, want file file", model.findHighlightQuery, model.lastQuery)
+	}
+
+	click := tea.MouseClickMsg{X: 0, Y: model.treeStartY() + stickyRootHeight, Button: tea.MouseLeft}
+	command := model.UpdateMouse(click)
+	if command == nil {
+		t.Fatal("file click returned nil command")
+	}
+	model.Update(command().(previewResultMsg))
+	if model.findHighlightQuery != "" {
+		t.Fatalf("preview click left underline %q, want cleared", model.findHighlightQuery)
+	}
+	if model.lastQuery != "file" {
+		t.Fatalf("preview click changed lastQuery to %q, want file kept", model.lastQuery)
+	}
+	if got, want := client.openFiles, []string{filepath.Join(root, "file.txt")}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("preview click opened %v, want %v", got, want)
+	}
+	model.UpdateKey(tea.KeyPressMsg{Code: 'n'})
+	if got := model.selectedNode().Name(); got != "file.txt" {
+		t.Fatalf("n after preview click selected %q, want the only match file.txt", got)
+	}
+}
+
+func TestFindActivationWithoutPreviewConfigKeepsUnderline(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file.txt"}})
+
+	variants := []struct {
+		name  string
+		build func() *Model
+	}{
+		{name: "no config", build: func() *Model { return NewModel(root, "", fake) }},
+		{name: "missing target pane", build: func() *Model {
+			return NewModelWithPreview(root, "", PreviewConfig{Client: &stubPreviewClient{}, WorkspaceID: "wY"}, fake)
+		}},
+	}
+	for _, variant := range variants {
+		t.Run(variant.name, func(t *testing.T) {
+			model := variant.build()
+			completeInitialLoad(t, model)
+			model.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
+			model.UpdateKey(findTextKey("/"))
+			model.UpdateKey(findTextKey("file"))
+			model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+			if command := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyEnter}); command != nil {
+				t.Fatalf("file enter returned command %v, want nil no-op", command)
+			}
+			if model.findHighlightQuery != "file" || model.lastQuery != "file" {
+				t.Fatalf("enter state = highlight %q last %q, want underline kept", model.findHighlightQuery, model.lastQuery)
+			}
+
+			click := tea.MouseClickMsg{X: 0, Y: model.treeStartY() + stickyRootHeight, Button: tea.MouseLeft}
+			if command := model.UpdateMouse(click); command != nil {
+				t.Fatalf("file click returned command %v, want nil no-op", command)
+			}
+			if model.findHighlightQuery != "file" {
+				t.Fatalf("click cleared underline to %q, want kept", model.findHighlightQuery)
+			}
+		})
+	}
+}
+
+func TestFindDirectoryActivationKeepsUnderline(t *testing.T) {
+	root := t.TempDir()
+	directoryPath := filepath.Join(root, "directory")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{
+		{Name: "directory", Mode: fs.ModeDir},
+		{Name: "match"},
+	})
+	fake.set(directoryPath, []filesystem.Entry{{Name: "child"}})
+	client := &stubPreviewClient{openPaneID: "wY:p9Z"}
+	model := NewModelWithPreview(root, "", PreviewConfig{Client: client, TargetPane: "wY:p3K", WorkspaceID: "wY"}, fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
+
+	model.UpdateKey(findTextKey("/"))
+	model.UpdateKey(findTextKey("match"))
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	directory := findVisibleIndex(t, model, "directory")
+	match := findVisibleIndex(t, model, "match")
+	if model.selected != match {
+		t.Fatalf("find confirm selected = %d, want match row %d", model.selected, match)
+	}
+	model.selected = directory
+
+	if command := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyEnter}); command != nil {
+		t.Fatalf("directory enter returned command %v, want nil", command)
+	}
+	if model.findHighlightQuery != "match" || model.lastQuery != "match" {
+		t.Fatalf("directory enter state = highlight %q last %q, want underline kept", model.findHighlightQuery, model.lastQuery)
+	}
+	if len(client.openFiles) != 0 || len(client.closed) != 0 || len(client.getCalls) != 0 || len(client.listed) != 0 {
+		t.Fatalf("directory enter used preview client: opens %v closes %v gets %v lists %v", client.openFiles, client.closed, client.getCalls, client.listed)
+	}
+
+	clickY := model.treeStartY() + stickyRootHeight + (directory - stickyRootHeight)
+	click := tea.MouseClickMsg{X: 0, Y: clickY, Button: tea.MouseLeft}
+	command := model.UpdateMouse(click)
+	if command == nil {
+		t.Fatal("directory click returned nil command, want async load")
+	}
+	message := command()
+	result, ok := message.(browser.LoadResult)
+	if !ok {
+		t.Fatalf("directory click command message = %T, want browser.LoadResult", message)
+	}
+	model.Update(result)
+	if model.findHighlightQuery != "match" || model.lastQuery != "match" {
+		t.Fatalf("directory click state = highlight %q last %q, want underline kept", model.findHighlightQuery, model.lastQuery)
+	}
+	directoryNode := model.visibleRows[directory].Node
+	if directoryNode == nil || !directoryNode.Expanded() || !directoryNode.Loaded() {
+		t.Fatalf("directory click did not expand and load the directory: expanded %v loaded %v", directoryNode != nil && directoryNode.Expanded(), directoryNode != nil && directoryNode.Loaded())
+	}
+	if len(client.openFiles) != 0 {
+		t.Fatalf("directory click opened %v, want none", client.openFiles)
+	}
+}
+
+func TestFindPreviewActivationFailureStillConsumesUnderline(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file.txt"}})
+	client := &stubPreviewClient{openErr: errors.New("herdr CLI unavailable")}
+	model := NewModelWithPreview(root, "", PreviewConfig{Client: client, TargetPane: "wY:p3K", WorkspaceID: "wY"}, fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
+
+	model.UpdateKey(findTextKey("/"))
+	model.UpdateKey(findTextKey("file"))
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if model.findHighlightQuery != "file" {
+		t.Fatalf("find confirm state highlight = %q, want file", model.findHighlightQuery)
+	}
+
+	command := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if command == nil {
+		t.Fatal("file enter returned nil command")
+	}
+	model.Update(command().(previewResultMsg))
+	if model.findHighlightQuery != "" || model.lastQuery != "file" {
+		t.Fatalf("failed preview state = highlight %q last %q, want cleared underline with kept lastQuery", model.findHighlightQuery, model.lastQuery)
+	}
+	if got, want := client.openFiles, []string{filepath.Join(root, "file.txt")}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("failed preview opened %v, want attempted file %v", got, want)
 	}
 }
 

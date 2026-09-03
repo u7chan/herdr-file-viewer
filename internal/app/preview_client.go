@@ -59,7 +59,9 @@ type previewResultMsg struct {
 // openPreviewOnActivate launches preview activation for the selected row: it
 // resolves the selectable file target and, inside a command, ensures exactly
 // one preview pane shows that file. Directories, non-file symlinks, missing
-// Herdr context, and configuration absence keep activation a no-op.
+// Herdr context, and configuration absence keep activation a no-op. A
+// successful resolution consumes the find underline at the synchronous moment
+// the launch is attempted, while lastQuery stays for n/N repeat navigation.
 func (m *Model) openPreviewOnActivate() tea.Cmd {
 	node := m.selectedNode()
 	if node == nil {
@@ -69,6 +71,10 @@ func (m *Model) openPreviewOnActivate() tea.Cmd {
 	if !ok || m.previewConfig.Client == nil || m.previewConfig.TargetPane == "" {
 		return nil
 	}
+
+	// The underline is a pointer to the found target; once the preview launch
+	// is attempted the pointer has served its purpose, even on CLI failure.
+	m.findHighlightQuery = ""
 
 	m.previewSeq++
 	seq := m.previewSeq
