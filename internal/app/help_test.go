@@ -330,7 +330,7 @@ func TestFindModeConsumesCAndHAndBackspaceBeforeRootMenuAndHelp(t *testing.T) {
 	chdir := &chdirRecorder{}
 	helpClient := &stubHelpClient{paneID: "wY:h1"}
 	model := NewModelConfigured(root, "", ModelConfig{
-		Help: HelpConfig{Client: helpClient, TargetPane: "wY:p3K"},
+		Help:  HelpConfig{Client: helpClient, TargetPane: "wY:p3K"},
 		Chdir: chdir.chdir,
 	}, fake)
 	completeInitialLoad(t, model)
