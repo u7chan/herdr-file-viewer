@@ -422,6 +422,9 @@ func TestFindPreviewEnterConsumesUnderlineAndKeepsRepeatNavigation(t *testing.T)
 	if command == nil {
 		t.Fatal("file enter returned nil command")
 	}
+	if model.findHighlightQuery != "" {
+		t.Fatalf("preview enter did not consume underline synchronously: %q", model.findHighlightQuery)
+	}
 	model.Update(command().(previewResultMsg))
 	if model.findHighlightQuery != "" {
 		t.Fatalf("preview enter left underline %q, want cleared", model.findHighlightQuery)
@@ -466,6 +469,9 @@ func TestFindPreviewClickConsumesUnderlineAndKeepsLastQuery(t *testing.T) {
 	command := model.UpdateMouse(click)
 	if command == nil {
 		t.Fatal("file click returned nil command")
+	}
+	if model.findHighlightQuery != "" {
+		t.Fatalf("preview click did not consume underline synchronously: %q", model.findHighlightQuery)
 	}
 	model.Update(command().(previewResultMsg))
 	if model.findHighlightQuery != "" {
@@ -601,6 +607,9 @@ func TestFindPreviewActivationFailureStillConsumesUnderline(t *testing.T) {
 	command := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if command == nil {
 		t.Fatal("file enter returned nil command")
+	}
+	if model.findHighlightQuery != "" {
+		t.Fatalf("failed preview attempt did not consume underline synchronously: %q", model.findHighlightQuery)
 	}
 	model.Update(command().(previewResultMsg))
 	if model.findHighlightQuery != "" || model.lastQuery != "file" {
