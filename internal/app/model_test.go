@@ -167,7 +167,7 @@ func TestLoadErrorIsRecoverableAndRetryIsAsync(t *testing.T) {
 	if !model.loading || !model.tree.Root().Loading() {
 		t.Fatalf("retry state = loading %v, node loading %v; want both true", model.loading, model.tree.Root().Loading())
 	}
-	model.Update(retry().(browser.LoadResult))
+	model.Update(loadResultFromCommand(t, retry))
 	if got := len(fake.calls()); got != 2 {
 		t.Fatalf("retry filesystem calls = %d, want 2", got)
 	}
@@ -230,7 +230,7 @@ func TestRightExpandsDirectoryAndLeftCollapsesOrMovesToParent(t *testing.T) {
 	if cmd := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd == nil {
 		t.Fatal("right on directory returned nil command")
 	} else {
-		model.Update(cmd().(browser.LoadResult))
+		model.Update(loadResultFromCommand(t, cmd))
 	}
 	if len(model.visibleRows) != 3 {
 		t.Fatalf("expanded rows = %d, want 3", len(model.visibleRows))
@@ -263,7 +263,7 @@ func TestEnterIsNoOpAndStaleResultsAreIgnored(t *testing.T) {
 	result := loadResultFromInit(t, cmd)
 
 	stale := result
-	stale.Path = filepath.Join(root, "other")
+	stale.result.Path = filepath.Join(root, "other")
 	model.Update(stale)
 	if !model.loading || len(model.visibleRows) != 1 {
 		t.Fatalf("stale result changed state: loading %v, rows %d", model.loading, len(model.visibleRows))
@@ -387,10 +387,7 @@ func TestMouseDirectoryClickExpandsCollapsesAndLoadsAsynchronously(t *testing.T)
 		t.Fatalf("directory click performed filesystem calls %v before command, want root only", got)
 	}
 
-	result, ok := cmd().(browser.LoadResult)
-	if !ok {
-		t.Fatalf("directory click command message = %T, want browser.LoadResult", cmd())
-	}
+	result := loadResultFromCommand(t, cmd)
 	model.Update(result)
 	if len(model.visibleRows) != 3 || !directory.Loaded() || directory.Loading() {
 		t.Fatalf("loaded directory state = rows %d, loaded %v, loading %v; want 3, true, false", len(model.visibleRows), directory.Loaded(), directory.Loading())
@@ -521,7 +518,7 @@ func TestFooterAndDividerReserveTheBottomOfTheViewport(t *testing.T) {
 	if got := strings.TrimSpace(lines[4]); got != "" {
 		t.Fatalf("reserved git info row = %q, want blank", lines[4])
 	}
-	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " space copy    r reload    q quit    / find" {
+	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " space copy    h help    q quit" {
 		t.Fatalf("footer = %q, want shortcut hints at the bottom", lines[len(lines)-1])
 	}
 	if !strings.HasPrefix(lines[2], " "+rootTreeIcon+" ") {
@@ -573,7 +570,7 @@ func TestFooterShowsOperationalStatusUntilReadyAndShortcutsWhenIdle(t *testing.T
 	model := NewModel(root, "", fake)
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
 
-	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    r reload    q quit    / find" {
+	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    h help    q quit" {
 		t.Fatalf("initial footer = %q, want shortcut hints", got)
 	}
 
@@ -583,7 +580,7 @@ func TestFooterShowsOperationalStatusUntilReadyAndShortcutsWhenIdle(t *testing.T
 	}
 
 	model.Update(loadResultFromInit(t, load))
-	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    r reload    q quit    / find" {
+	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    h help    q quit" {
 		t.Fatalf("ready footer = %q, want shortcut hints", got)
 	}
 }
@@ -603,7 +600,7 @@ func TestReloadKeyReScansLoadedDirectoriesAndRestoresSelection(t *testing.T) {
 	if cmd := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd == nil {
 		t.Fatal("expand returned nil command")
 	} else {
-		model.Update(cmd().(browser.LoadResult))
+		model.Update(loadResultFromCommand(t, cmd))
 	}
 	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
@@ -629,11 +626,7 @@ func TestReloadKeyReScansLoadedDirectoriesAndRestoresSelection(t *testing.T) {
 		t.Fatalf("reload batch = %d commands, want 2", len(batch))
 	}
 	for _, reloadCmd := range batch {
-		result, ok := reloadCmd().(browser.LoadResult)
-		if !ok {
-			t.Fatalf("reload command message = %T, want browser.LoadResult", reloadCmd())
-		}
-		model.Update(result)
+		model.Update(loadResultFromCommand(t, reloadCmd))
 	}
 
 	if got := len(fake.calls()); got != calls+2 {
@@ -668,7 +661,7 @@ func TestReloadDropsSelectionAnchorWhenPathDisappears(t *testing.T) {
 	if cmd := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd == nil {
 		t.Fatal("expand returned nil command")
 	} else {
-		model.Update(cmd().(browser.LoadResult))
+		model.Update(loadResultFromCommand(t, cmd))
 	}
 	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
@@ -683,7 +676,7 @@ func TestReloadDropsSelectionAnchorWhenPathDisappears(t *testing.T) {
 	}
 	batch := cmd().(tea.BatchMsg)
 	for index := len(batch) - 1; index >= 0; index-- {
-		model.Update(batch[index]().(browser.LoadResult))
+		model.Update(loadResultFromCommand(t, batch[index]))
 	}
 
 	if model.restorePath != "" {
@@ -710,7 +703,7 @@ func TestReloadCompletesWhenSelectedDirectoryDisappears(t *testing.T) {
 	if cmd := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd == nil {
 		t.Fatal("expand returned nil command")
 	} else {
-		model.Update(cmd().(browser.LoadResult))
+		model.Update(loadResultFromCommand(t, cmd))
 	}
 
 	fake.set(root, nil)
@@ -719,7 +712,7 @@ func TestReloadCompletesWhenSelectedDirectoryDisappears(t *testing.T) {
 		t.Fatal("reload returned nil command")
 	}
 	for _, reloadCmd := range cmd().(tea.BatchMsg) {
-		model.Update(reloadCmd().(browser.LoadResult))
+		model.Update(loadResultFromCommand(t, reloadCmd))
 	}
 
 	if model.loading {
@@ -752,7 +745,7 @@ func TestReloadShowsFooterToastOnceAndTimesOut(t *testing.T) {
 	if cmd := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd == nil {
 		t.Fatal("expand returned nil command")
 	} else {
-		model.Update(cmd().(browser.LoadResult))
+		model.Update(loadResultFromCommand(t, cmd))
 	}
 
 	fake.set(directoryPath, []filesystem.Entry{
@@ -765,7 +758,7 @@ func TestReloadShowsFooterToastOnceAndTimesOut(t *testing.T) {
 	}
 	var toastCmd tea.Cmd
 	for _, reloadCmd := range cmd().(tea.BatchMsg) {
-		_, returned := model.Update(reloadCmd().(browser.LoadResult))
+		_, returned := model.Update(loadResultFromCommand(t, reloadCmd))
 		if returned != nil {
 			toastCmd = returned
 		}
@@ -803,7 +796,7 @@ func TestStaleToastTimerDoesNotClearNewerToast(t *testing.T) {
 		if cmd == nil {
 			t.Fatal("reload returned nil command")
 		}
-		_, returned := model.Update(cmd().(browser.LoadResult))
+		_, returned := model.Update(loadResultFromCommand(t, cmd))
 		if returned == nil {
 			t.Fatal("reload completion returned no toast command")
 		}
@@ -839,7 +832,7 @@ func TestReloadDoesNotToastOnError(t *testing.T) {
 	fake.setError(root, errors.New("reload failed"))
 	if cmd := model.UpdateKey(tea.KeyPressMsg{Code: 'r'}); cmd == nil {
 		t.Fatal("reload returned nil command")
-	} else if _, toast := model.Update(cmd().(browser.LoadResult)); toast != nil {
+	} else if _, toast := model.Update(loadResultFromCommand(t, cmd)); toast != nil {
 		t.Fatalf("failed reload returned command %v, want nil", toast)
 	}
 	if model.toast != "" {
@@ -862,7 +855,7 @@ func TestReloadMixedFailureKeepsErrorAndSuppressesToast(t *testing.T) {
 		if cmd := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd == nil {
 			t.Fatal("expand returned nil command")
 		} else {
-			model.Update(cmd().(browser.LoadResult))
+			model.Update(loadResultFromCommand(t, cmd))
 		}
 
 		fake.setError(directoryPath, errors.New("read failed"))
@@ -874,9 +867,9 @@ func TestReloadMixedFailureKeepsErrorAndSuppressesToast(t *testing.T) {
 		if len(batch) != 2 {
 			t.Fatalf("reload batch = %d commands, want 2", len(batch))
 		}
-		results := make([]browser.LoadResult, 0, len(batch))
+		results := make([]directoryLoadMsg, 0, len(batch))
 		for _, reloadCmd := range batch {
-			results = append(results, reloadCmd().(browser.LoadResult))
+			results = append(results, loadResultFromCommand(t, reloadCmd))
 		}
 
 		var toastCmd tea.Cmd
@@ -919,7 +912,7 @@ func TestReloadToastRendersInFooter(t *testing.T) {
 	if cmd := model.UpdateKey(tea.KeyPressMsg{Code: 'r'}); cmd == nil {
 		t.Fatal("reload returned nil command")
 	} else {
-		model.Update(cmd().(browser.LoadResult))
+		model.Update(loadResultFromCommand(t, cmd))
 	}
 	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
 	footer := lines[len(lines)-1]
@@ -1187,7 +1180,7 @@ func TestDirectoryLoadErrorIsVisibleAndRetryable(t *testing.T) {
 	if load == nil {
 		t.Fatal("right returned nil command, want directory load")
 	}
-	model.Update(load().(browser.LoadResult))
+	model.Update(loadResultFromCommand(t, load))
 	directory := model.selectedNode()
 	if model.loading || directory.Loading() || directory.Loaded() {
 		t.Fatalf("directory error state = model loading %v, node loading %v, loaded %v; want idle and unloaded", model.loading, directory.Loading(), directory.Loaded())
@@ -1202,7 +1195,7 @@ func TestDirectoryLoadErrorIsVisibleAndRetryable(t *testing.T) {
 	if retry == nil || !model.loading || !directory.Loading() {
 		t.Fatalf("retry state = command %v, model loading %v, node loading %v; want pending retry", retry != nil, model.loading, directory.Loading())
 	}
-	model.Update(retry().(browser.LoadResult))
+	model.Update(loadResultFromCommand(t, retry))
 	if directory.LoadError() != nil || !directory.Loaded() || model.loading {
 		t.Fatalf("recovered state = error %v, loaded %v, model loading %v; want successful idle load", directory.LoadError(), directory.Loaded(), model.loading)
 	}
@@ -1422,27 +1415,36 @@ func completeInitialLoad(t *testing.T, model *Model) {
 	model.Update(loadResultFromInit(t, model.Init()))
 }
 
-func loadResultFromInit(t testing.TB, cmd tea.Cmd) browser.LoadResult {
+func loadResultFromInit(t testing.TB, cmd tea.Cmd) directoryLoadMsg {
+	t.Helper()
+	return loadResultFromCommand(t, cmd)
+}
+
+// loadResultFromCommand returns the generation-tagged directory load message
+// from one command or a command batch. Callers deliver it through Update
+// exactly like the program loop does; the tag lets Update drop results from
+// superseded roots.
+func loadResultFromCommand(t testing.TB, cmd tea.Cmd) directoryLoadMsg {
 	t.Helper()
 	if cmd == nil {
-		t.Fatal("Init() returned nil command")
+		t.Fatal("command is nil")
 	}
 
 	message := cmd()
-	if result, ok := message.(browser.LoadResult); ok {
+	if result, ok := message.(directoryLoadMsg); ok {
 		return result
 	}
 	batch, ok := message.(tea.BatchMsg)
 	if !ok {
-		t.Fatalf("Init() message = %T, want browser.LoadResult or tea.BatchMsg", message)
+		t.Fatalf("command message = %T, want directoryLoadMsg or tea.BatchMsg", message)
 	}
 	for _, command := range batch {
-		if result, ok := command().(browser.LoadResult); ok {
+		if result, ok := command().(directoryLoadMsg); ok {
 			return result
 		}
 	}
-	t.Fatalf("Init() batch contains no browser.LoadResult")
-	return browser.LoadResult{}
+	t.Fatalf("batch contains no directoryLoadMsg")
+	return directoryLoadMsg{}
 }
 
 type fakeFileSystem struct {

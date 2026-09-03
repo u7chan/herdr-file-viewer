@@ -16,6 +16,12 @@ title = "Preview"
 placement = "split"
 command = ["./bin/herdr-file-viewer"]
 
+[[panes]]
+id = "help"
+title = "Help"
+placement = "overlay"
+command = ["./bin/herdr-file-viewer"]
+
 [[actions]]
 id = "open-file-viewer"
 title = "Open file viewer"

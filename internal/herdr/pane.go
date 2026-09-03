@@ -18,10 +18,26 @@ const (
 	PaneIDEnv       = "HERDR_PANE_ID"
 	WorkspaceIDEnv  = "HERDR_WORKSPACE_ID"
 	PreviewFileEnv  = "HERDR_PREVIEW_FILE"
+	// HelpContextEnv tells the help entrypoint which caller opened it.
+	HelpContextEnv = "HERDR_HELP_CONTEXT"
 	// PreviewEntrypointID identifies the preview pane entrypoint.
 	PreviewEntrypointID = "preview"
-	paneNotFoundCode    = "pane_not_found"
+	// HelpEntrypointID identifies the overlay help pane entrypoint.
+	HelpEntrypointID = "help"
+	paneNotFoundCode = "pane_not_found"
 )
+
+// HelpContext returns the caller context passed through HelpContextEnv for
+// the help entrypoint: "tree" or "preview". A missing or unknown value
+// falls back to "tree".
+func HelpContext() string {
+	switch os.Getenv(HelpContextEnv) {
+	case "preview":
+		return "preview"
+	default:
+		return "tree"
+	}
+}
 
 // EntrypointID returns HERDR_PLUGIN_ENTRYPOINT_ID, the pane entrypoint that
 // launched this process.
@@ -32,6 +48,11 @@ func EntrypointID() string {
 // IsPreviewEntrypoint reports whether this process runs the preview pane.
 func IsPreviewEntrypoint() bool {
 	return EntrypointID() == PreviewEntrypointID
+}
+
+// IsHelpEntrypoint reports whether this process runs the help overlay pane.
+func IsHelpEntrypoint() bool {
+	return EntrypointID() == HelpEntrypointID
 }
 
 // PaneID returns HERDR_PANE_ID, the caller's own pane identity.
@@ -61,7 +82,10 @@ type OpenPaneRequest struct {
 	Placement  string
 	TargetPane string
 	Direction  string
-	Env        []string // KEY=VALUE pairs propagated to the launched process
+	// Focus requests the keyboard focus move to the opened pane. The zero
+	// value keeps the focus in the caller's pane.
+	Focus bool
+	Env   []string // KEY=VALUE pairs propagated to the launched process
 }
 
 // ReportMetadataRequest describes one `herdr pane report-metadata`
@@ -138,8 +162,10 @@ func resolvePaneBinary(lookupEnv func(string) (string, bool)) string {
 	return "herdr"
 }
 
-// OpenPane runs `herdr plugin pane open` with `--no-focus` so the keyboard
-// focus stays in the caller's pane.
+// OpenPane runs `herdr plugin pane open`. Focused overlays pass --focus;
+// every other pane keeps the keyboard focus in the caller's pane through
+// --no-focus. The direction flag is omitted when the placement does not use
+// one (overlay).
 func (c *CLIPaneClient) OpenPane(request OpenPaneRequest) (string, error) {
 	args := []string{
 		"plugin", "pane", "open",
@@ -147,8 +173,14 @@ func (c *CLIPaneClient) OpenPane(request OpenPaneRequest) (string, error) {
 		"--entrypoint", request.Entrypoint,
 		"--placement", request.Placement,
 		"--target-pane", request.TargetPane,
-		"--direction", request.Direction,
-		"--no-focus",
+	}
+	if request.Direction != "" {
+		args = append(args, "--direction", request.Direction)
+	}
+	if request.Focus {
+		args = append(args, "--focus")
+	} else {
+		args = append(args, "--no-focus")
 	}
 	for _, env := range request.Env {
 		args = append(args, "--env", env)

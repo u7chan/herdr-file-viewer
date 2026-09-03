@@ -63,12 +63,10 @@ const (
 	readyStatus                = "Ready"
 	helpCopyKey                = "space"
 	helpCopyLabel              = "copy"
-	helpReloadKey              = "r"
-	helpReloadLabel            = "reload"
+	helpHelpKey                = "h"
+	helpHelpLabel              = "help"
 	helpQuitKey                = "q"
 	helpQuitLabel              = "quit"
-	helpFindKey                = "/"
-	helpFindLabel              = "find"
 	helpGroupSeparator         = "    "
 	contentLeftPadding         = 1
 	ellipsis                   = "…"
@@ -94,6 +92,7 @@ type Model struct {
 	tree        *browser.Tree
 	visibleRows []browser.VisibleRow
 	pending     map[string]struct{}
+	fileSystem  filesystem.FileSystem
 
 	selected int
 	offset   int
@@ -127,19 +126,53 @@ type Model struct {
 	previewConfig PreviewConfig
 	previewPaneID string
 	previewSeq    int
+
+	helpConfig  HelpConfig
+	helpPending bool
+
+	// generation distinguishes the current root from superseded ones: load
+	// results tagged with an older generation are dropped before they can
+	// touch the new tree's state.
+	generation int
+	// parentRestorePath re-selects the previous root directory once the
+	// parent opened by Backspace finishes loading; it is cleared after the
+	// restore or when another root move supersedes it.
+	parentRestorePath string
+	// chdir keeps the process working directory in sync with the display
+	// root. It is injected by the composition root; a nil chdir skips the
+	// sync while the tree still moves.
+	chdir func(path string) error
+}
+
+// ModelConfig carries the optional composition-root adapters for the tree
+// model: the preview pane capability, the help overlay capability, and the
+// process cwd sync used by root moves.
+type ModelConfig struct {
+	Preview PreviewConfig
+	Help    HelpConfig
+	// Chdir moves the process working directory into a new display root.
+	// The zero value skips the cwd sync while the display root still moves.
+	Chdir func(path string) error
 }
 
 // NewModel constructs the tree without reading the filesystem. A filesystem
 // argument is optional so the composition root can use the local filesystem
 // while tests can provide a deterministic implementation.
 func NewModel(root, warning string, fileSystems ...filesystem.FileSystem) *Model {
-	return NewModelWithPreview(root, warning, PreviewConfig{}, fileSystems...)
+	return NewModelConfigured(root, warning, ModelConfig{}, fileSystems...)
 }
 
 // NewModelWithPreview additionally wires preview activation for Enter and
 // left-clicked previewable rows. The zero PreviewConfig keeps activation a
 // no-op, matching the plain NewModel.
 func NewModelWithPreview(root, warning string, preview PreviewConfig, fileSystems ...filesystem.FileSystem) *Model {
+	return NewModelConfigured(root, warning, ModelConfig{Preview: preview}, fileSystems...)
+}
+
+// NewModelConfigured wires the optional composition-root adapters: preview
+// activation, the help overlay, and the cwd sync behind root moves. A zero
+// config keeps all three capabilities no-ops.
+func NewModelConfigured(root, warning string, config ModelConfig, fileSystems ...filesystem.FileSystem) *Model {
 	fileSystem := filesystem.FileSystem(filesystem.NewLocal())
 	if len(fileSystems) > 0 && fileSystems[0] != nil {
 		fileSystem = fileSystems[0]
@@ -148,7 +181,10 @@ func NewModelWithPreview(root, warning string, preview PreviewConfig, fileSystem
 	m := &Model{
 		warning:       sanitizeDisplay(warning),
 		pending:       make(map[string]struct{}),
-		previewConfig: preview,
+		fileSystem:    fileSystem,
+		previewConfig: config.Preview,
+		helpConfig:    config.Help,
+		chdir:         config.Chdir,
 	}
 	m.status = m.readyStatus()
 
@@ -180,10 +216,10 @@ func (m *Model) Init() tea.Cmd {
 	m.status = loadingStatus
 	if !m.gitStatusRequested && request.Node == m.tree.Root() {
 		m.gitStatusRequested = true
-		commands = append(commands, loadInitialDirectory(m.tree, request))
+		commands = append(commands, m.loadInitialDirectory(m.tree, request))
 		return tea.Batch(commands...)
 	}
-	commands = append(commands, loadDirectory(m.tree, request))
+	commands = append(commands, m.loadDirectory(m.tree, request))
 	return tea.Batch(commands...)
 }
 
@@ -197,8 +233,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.BackgroundColorMsg:
 		m.lightBackground = !msg.IsDark()
-	case browser.LoadResult:
-		return m, m.applyLoadResult(msg)
+	case directoryLoadMsg:
+		if msg.gen != m.generation {
+			// The result belongs to a superseded root; dropping it without
+			// touching pending or status keeps the new tree's state intact.
+			return m, nil
+		}
+		return m, m.applyLoadResult(msg.result)
+	case helpResultMsg:
+		m.helpPending = false
+		if msg.err != "" {
+			m.warning = addWarning(m.warning, "Help: "+msg.err)
+			if !m.loading {
+				m.status = m.readyStatus()
+			}
+		}
 	case toastTimeoutMsg:
 		if msg.seq == m.toastSeq {
 			m.toast = ""
@@ -224,6 +273,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "C":
+			return m, m.moveRootToSelection()
+		case "backspace":
+			return m, m.moveRootToParent()
+		case "h":
+			return m, m.requestHelp()
 		case "space", "\u3000":
 			return m, m.copySelection()
 		case "r":
@@ -524,7 +579,7 @@ func (m *Model) startLoad(request browser.LoadRequest) tea.Cmd {
 	m.pending[request.Path] = struct{}{}
 	m.loading = true
 	m.status = loadingStatus
-	return loadDirectory(m.tree, request)
+	return m.loadDirectory(m.tree, request)
 }
 
 // reloadTree re-scans every loaded directory and refreshes the Git snapshot.
@@ -554,28 +609,43 @@ func (m *Model) reloadTree(showToast bool) tea.Cmd {
 	commands := make([]tea.Cmd, 0, len(requests))
 	for _, request := range requests {
 		m.pending[request.Path] = struct{}{}
-		commands = append(commands, loadReloadDirectory(m.tree, request))
+		commands = append(commands, m.loadReloadDirectory(m.tree, request))
 	}
 	m.loading = true
 	m.status = loadingStatus
 	return tea.Batch(commands...)
 }
 
-func loadDirectory(tree *browser.Tree, request browser.LoadRequest) tea.Cmd {
+// directoryLoadMsg wraps one browser load result with the model generation
+// that issued it. Update drops messages whose generation is no longer
+// current before any state is touched, so reads started before a root move
+// cannot mutate the new tree.
+type directoryLoadMsg struct {
+	gen    int
+	result browser.LoadResult
+}
+
+// loadDirectory runs one lazy directory read on the tree captured when the
+// command was created. Reads and Git snapshots happen on the command
+// goroutine; the tagged result is applied only when the generation matches.
+func (m *Model) loadDirectory(tree *browser.Tree, request browser.LoadRequest) tea.Cmd {
+	generation := m.generation
 	return func() tea.Msg {
-		return tree.Read(request)
+		return directoryLoadMsg{gen: generation, result: tree.Read(request)}
 	}
 }
 
-func loadReloadDirectory(tree *browser.Tree, request browser.LoadRequest) tea.Cmd {
+func (m *Model) loadReloadDirectory(tree *browser.Tree, request browser.LoadRequest) tea.Cmd {
+	generation := m.generation
 	return func() tea.Msg {
-		return tree.ReadReload(request)
+		return directoryLoadMsg{gen: generation, result: tree.ReadReload(request)}
 	}
 }
 
-func loadInitialDirectory(tree *browser.Tree, request browser.LoadRequest) tea.Cmd {
+func (m *Model) loadInitialDirectory(tree *browser.Tree, request browser.LoadRequest) tea.Cmd {
+	generation := m.generation
 	return func() tea.Msg {
-		return tree.ReadInitial(request)
+		return directoryLoadMsg{gen: generation, result: tree.ReadInitial(request)}
 	}
 }
 
@@ -596,6 +666,9 @@ func (m *Model) applyLoadResult(result browser.LoadResult) tea.Cmd {
 			m.status = m.readyStatus()
 		}
 		m.refreshVisibleRows()
+		if result.Err == nil && result.Node == m.tree.Root() && m.parentRestorePath != "" {
+			m.restoreParentSelection()
+		}
 	}
 	if m.loading {
 		return nil
@@ -655,6 +728,139 @@ func (m *Model) restoreSelectionAfterReload() {
 	if len(m.visibleRows) > 0 {
 		m.selected = len(m.visibleRows) - 1
 		m.keepSelectionVisible()
+	}
+}
+
+// moveRootToSelection re-opens the selected directory as the tree root (C).
+// Files, symlinks, and the sticky root row itself are no-ops: only real
+// directories can become the new root, and Enter stays the preview key.
+func (m *Model) moveRootToSelection() tea.Cmd {
+	node := m.selectedNode()
+	if node == nil || !node.IsDirectory() || node.Parent() == nil {
+		return nil
+	}
+	return m.moveRoot(node.Path(), "")
+}
+
+// moveRootToParent re-opens the parent of the current root as the new root
+// (Backspace). Only the sticky root row moves up; the filesystem root /
+// has no parent and is a no-op. The current root path is remembered so the
+// parent load can re-select it.
+func (m *Model) moveRootToParent() tea.Cmd {
+	if m.selected != 0 || m.tree == nil || m.tree.Root() == nil {
+		return nil
+	}
+	currentRoot := m.tree.Root().Path()
+	parent := filepath.Dir(currentRoot)
+	if parent == currentRoot {
+		return nil
+	}
+	return m.moveRoot(parent, currentRoot)
+}
+
+// moveRoot switches the display root to path and syncs the process working
+// directory through the injected chdir, together as one operation. A failed
+// chdir keeps the current root, tree, expansion, and selection untouched
+// and surfaces a sanitized footer warning. A successful move discards the
+// previous tree, its pending reads, expansion cache, and Git state: the new
+// root is loaded asynchronously in a fresh generation, and the selection
+// settles on the new sticky root row. restorePath, when non-empty,
+// re-selects that directory once the new root load succeeds.
+func (m *Model) moveRoot(path, restorePath string) tea.Cmd {
+	if m.chdir != nil {
+		if err := m.chdir(path); err != nil {
+			m.warning = addWarning(m.warning, "cd: "+sanitizeDisplay(err.Error()))
+			m.status = m.readyStatus()
+			return nil
+		}
+	}
+
+	tree, err := browser.NewTree(path, m.fileSystem)
+	if err != nil {
+		m.warning = addWarning(m.warning, "Cannot open root: "+sanitizeDisplay(err.Error()))
+		m.status = m.readyStatus()
+		return nil
+	}
+
+	m.adoptTree(tree)
+	m.parentRestorePath = restorePath
+	request, ok := m.tree.Expand(m.tree.Root())
+	if !ok {
+		return nil
+	}
+	m.pending[request.Path] = struct{}{}
+	m.loading = true
+	m.status = loadingStatus
+	m.gitStatusRequested = true
+	return m.loadInitialDirectory(m.tree, request)
+}
+
+// adoptTree swaps in a freshly built tree for a new root. Every per-tree
+// state is reset: pending reads, the row cache, selection, find state,
+// reload anchors, Git request bookkeeping, and the generation that guards
+// late results from the previous root. The tracked preview pane survives:
+// an open preview is not closed by root moves.
+func (m *Model) adoptTree(tree *browser.Tree) {
+	m.generation++
+	m.tree = tree
+	m.pending = make(map[string]struct{})
+	m.visibleRows = append(m.visibleRows[:0], tree.VisibleRows()...)
+	m.selected = 0
+	m.offset = 0
+	m.findActive = false
+	m.findQuery = ""
+	m.findAnchorPath = ""
+	m.lastQuery = ""
+	m.findHighlightQuery = ""
+	m.gitStatusRequested = false
+	m.restorePath = ""
+	m.parentRestorePath = ""
+	m.reloadErrored = false
+	m.reloadCount = 0
+	m.loading = false
+	m.toast = ""
+}
+
+// restoreParentSelection re-selects the directory the tree moved up from
+// once its parent finishes loading. A previous root that is missing,
+// hidden, or whose load failed never appears among the visible rows and
+// falls back to the sticky root row.
+func (m *Model) restoreParentSelection() {
+	path := m.parentRestorePath
+	m.parentRestorePath = ""
+	for index, row := range m.visibleRows {
+		if row.Node != nil && row.Node.Path() == path {
+			m.selected = index
+			m.keepSelectionVisible()
+			return
+		}
+	}
+	m.selected = 0
+	m.offset = 0
+}
+
+// requestHelp opens the tree help overlay. A missing Herdr adapter or a
+// failed launch keeps the tree state untouched and surfaces a footer
+// warning; repeated presses while a launch is in flight are ignored so one
+// overlay is never created twice.
+func (m *Model) requestHelp() tea.Cmd {
+	if m.helpConfig.Client == nil || m.helpConfig.TargetPane == "" {
+		m.warning = addWarning(m.warning, "Help unavailable: no Herdr context")
+		m.status = m.readyStatus()
+		return nil
+	}
+	if m.helpPending {
+		return nil
+	}
+	m.helpPending = true
+	client := m.helpConfig.Client
+	targetPane := m.helpConfig.TargetPane
+	return func() tea.Msg {
+		_, err := client.OpenHelp(HelpOpenRequest{Context: helpTreeContext, TargetPane: targetPane})
+		if err != nil {
+			return helpResultMsg{err: sanitizeDisplay(err.Error())}
+		}
+		return helpResultMsg{}
 	}
 }
 
@@ -1114,9 +1320,8 @@ func (m *Model) renderFooter() string {
 	}
 
 	help := renderShortcut(helpCopyKey, helpCopyLabel) + helpGroupSeparator +
-		renderShortcut(helpReloadKey, helpReloadLabel) + helpGroupSeparator +
-		renderShortcut(helpQuitKey, helpQuitLabel) + helpGroupSeparator +
-		renderShortcut(helpFindKey, helpFindLabel)
+		renderShortcut(helpHelpKey, helpHelpLabel) + helpGroupSeparator +
+		renderShortcut(helpQuitKey, helpQuitLabel)
 	help = strings.Repeat(" ", m.contentLeftPadding()) + help
 	return m.renderStyledLine(help, lipgloss.NewStyle())
 }

@@ -26,6 +26,9 @@ func run() error {
 	if herdr.IsPreviewEntrypoint() {
 		return runPreview()
 	}
+	if herdr.IsHelpEntrypoint() {
+		return runHelp()
+	}
 
 	root, err := herdr.ResolveRoot()
 	if err != nil {
@@ -35,16 +38,33 @@ func run() error {
 		return err
 	}
 
-	model := app.NewModelWithPreview(root.Path, root.Warning, app.PreviewConfig{
-		Client:      newPreviewClient(),
-		TargetPane:  herdr.PaneID(),
-		WorkspaceID: herdr.WorkspaceID(),
+	model := app.NewModelConfigured(root.Path, root.Warning, app.ModelConfig{
+		Preview: app.PreviewConfig{
+			Client:      newPreviewClient(),
+			TargetPane:  herdr.PaneID(),
+			WorkspaceID: herdr.WorkspaceID(),
+		},
+		Help: app.HelpConfig{
+			Client:     newHelpClient(),
+			TargetPane: herdr.PaneID(),
+		},
+		// Root moves keep the process working directory in sync with the
+		// display root so Herdr attributes the viewed directory to this pane.
+		Chdir: herdr.ChdirRoot,
 	})
 	return runProgram(model)
 }
 
 func runPreview() error {
-	model := app.NewPreviewModel(herdr.PreviewFile(), newPreviewClient(), herdr.PaneID())
+	model := app.NewPreviewModelWithConfig(herdr.PreviewFile(), newPreviewClient(), herdr.PaneID(), app.HelpConfig{
+		Client:     newHelpClient(),
+		TargetPane: herdr.PaneID(),
+	})
+	return runProgram(model)
+}
+
+func runHelp() error {
+	model := app.NewHelpModel(herdr.HelpContext())
 	return runProgram(model)
 }
 
@@ -113,5 +133,27 @@ func (a paneClientAdapter) TagPreview(paneID, file string) error {
 		PaneID: paneID,
 		Source: pluginID,
 		Tokens: []string{app.PreviewMetadataToken + "=" + file},
+	})
+}
+
+// newHelpClient adapts the herdr CLI implementation to the app-side help
+// interface, fixing the plugin identity, the overlay placement, the focus,
+// and the help context environment value at the composition root.
+func newHelpClient() app.HelpClient {
+	return helpClientAdapter{client: herdr.NewCLIPaneClient()}
+}
+
+type helpClientAdapter struct {
+	client herdr.PaneClient
+}
+
+func (a helpClientAdapter) OpenHelp(request app.HelpOpenRequest) (string, error) {
+	return a.client.OpenPane(herdr.OpenPaneRequest{
+		Plugin:     pluginID,
+		Entrypoint: herdr.HelpEntrypointID,
+		Placement:  "overlay",
+		TargetPane: request.TargetPane,
+		Focus:      true,
+		Env:        []string{herdr.HelpContextEnv + "=" + request.Context},
 	})
 }

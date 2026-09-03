@@ -818,7 +818,7 @@ func TestPreviewModelShowsUnsupportedLabelForBinaryCategory(t *testing.T) {
 	if strings.Contains(content, "PK") {
 		t.Fatalf("view = %q, must not show binary content", content)
 	}
-	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " w wrap    s spaces    space copy    r reload    q close" {
+	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " space copy    h help    q close" {
 		t.Fatalf("footer = %q, want preview shortcuts", got)
 	}
 }
@@ -1117,7 +1117,7 @@ func TestPreviewRendersTitleFooterAndTruncatedMarker(t *testing.T) {
 	if !strings.Contains(lines[markerRow], "truncated (2 MiB limit)") {
 		t.Fatalf("body marker = %q, want truncated marker", lines[markerRow])
 	}
-	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " w wrap    s spaces    space copy    r reload    q close" {
+	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " space copy    h help    q close" {
 		t.Fatalf("footer = %q, want preview shortcuts", got)
 	}
 }
@@ -1131,7 +1131,7 @@ func TestPreviewFooterShowsLoadingThenReadyAndWarning(t *testing.T) {
 		t.Fatalf("loading footer = %q, want %q", got, " "+previewLoadingStatus)
 	}
 	model.Update(previewLoadResult(t, model.Init()))
-	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " w wrap    s spaces    space copy    r reload    q close" {
+	if got := strings.TrimRight(ansi.Strip(strings.Split(model.View().Content, "\n")[5]), " "); got != " space copy    h help    q close" {
 		t.Fatalf("ready footer = %q, want shortcuts", got)
 	}
 
@@ -1441,7 +1441,7 @@ func TestPreviewCopyToastTimesOutAndFooterReturnsToHelp(t *testing.T) {
 	if model.toast != "" {
 		t.Fatalf("toast = %q, want cleared after timeout", model.toast)
 	}
-	if got := footer(); got != " w wrap    s spaces    space copy    r reload    q close" {
+	if got := footer(); got != " space copy    h help    q close" {
 		t.Fatalf("footer after timeout = %q, want shortcuts", got)
 	}
 }
@@ -1457,7 +1457,7 @@ func TestPreviewFooterToastOutranksStatusAndHelp(t *testing.T) {
 		lines := strings.Split(ansi.Strip(model.View().Content), "\n")
 		return strings.TrimRight(lines[len(lines)-1], " ")
 	}
-	if got := footer(); got != " w wrap    s spaces    space copy    r reload    q close" {
+	if got := footer(); got != " space copy    h help    q close" {
 		t.Fatalf("ready footer = %q, want shortcuts", got)
 	}
 
@@ -1486,7 +1486,7 @@ func TestPreviewFooterToastOutranksStatusAndHelp(t *testing.T) {
 	}
 
 	model.status = model.readyStatus()
-	if got := footer(); got != " w wrap    s spaces    space copy    r reload    q close" {
+	if got := footer(); got != " space copy    h help    q close" {
 		t.Fatalf("help footer when ready = %q, want shortcuts", got)
 	}
 }

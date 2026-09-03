@@ -108,6 +108,34 @@ func TestOpenPaneReportsMissingPaneIDAndErrors(t *testing.T) {
 	}
 }
 
+func TestOpenPaneUsesFocusFlagAndOmitsDirectionForOverlays(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"result":{"plugin_pane":{"pane":{"pane_id":"wY:h1"}}}}`}
+	client := &CLIPaneClient{runner: runner}
+
+	paneID, err := client.OpenPane(OpenPaneRequest{
+		Plugin:     "u7chan.file-viewer",
+		Entrypoint: "help",
+		Placement:  "overlay",
+		TargetPane: "wY:p3K",
+		Focus:      true,
+		Env:        []string{"HERDR_HELP_CONTEXT=tree"},
+	})
+	if err != nil || paneID != "wY:h1" {
+		t.Fatalf("OpenPane() = %q, %v; want overlay pane id without error", paneID, err)
+	}
+	want := []string{"plugin", "pane", "open",
+		"--plugin", "u7chan.file-viewer",
+		"--entrypoint", "help",
+		"--placement", "overlay",
+		"--target-pane", "wY:p3K",
+		"--focus",
+		"--env", "HERDR_HELP_CONTEXT=tree",
+	}
+	if len(runner.args) != 1 || !reflect.DeepEqual(runner.args[0], want) {
+		t.Fatalf("OpenPane() args = %v, want %v", runner.args, want)
+	}
+}
+
 func TestGetPaneParsesTokensAndDistinguishesNotFound(t *testing.T) {
 	client := &CLIPaneClient{runner: &fakeRunner{stdout: `{"id":"cli:pane:get","result":{"pane":{"pane_id":"wY:p9Z","tokens":{"preview":"/abs/file.md"}},"type":"pane_info"}}`}}
 	info, found, err := client.GetPane("wY:p9Z")

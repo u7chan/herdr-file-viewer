@@ -134,6 +134,50 @@ func TestPreviewClientAdapterTagPreviewReportsMetadata(t *testing.T) {
 	}
 }
 
+func TestHelpClientAdapterOpenHelpFixesPluginOverlayFocusAndContext(t *testing.T) {
+	stub := &stubPaneClient{openID: "wY:h1"}
+	paneID, err := (helpClientAdapter{client: stub}).OpenHelp(app.HelpOpenRequest{Context: "preview", TargetPane: "wY:p9Z"})
+	if err != nil || paneID != "wY:h1" {
+		t.Fatalf("OpenHelp() = %q, %v; want pane id without error", paneID, err)
+	}
+	want := herdr.OpenPaneRequest{
+		Plugin:     pluginID,
+		Entrypoint: herdr.HelpEntrypointID,
+		Placement:  "overlay",
+		TargetPane: "wY:p9Z",
+		Focus:      true,
+		Env:        []string{herdr.HelpContextEnv + "=preview"},
+	}
+	if !reflect.DeepEqual(stub.openRequest, want) {
+		t.Fatalf("OpenPane() request = %#v, want %#v", stub.openRequest, want)
+	}
+
+	stub.openErr = errors.New("daemon down")
+	if _, err := (helpClientAdapter{client: stub}).OpenHelp(app.HelpOpenRequest{Context: "tree", TargetPane: "wY:p3K"}); err == nil {
+		t.Fatal("OpenHelp() error = nil, want propagated error")
+	}
+}
+
+func TestHelpClientAdapterOpenHelpKeepsEveryCallerContextDistinct(t *testing.T) {
+	stub := &stubPaneClient{openID: "wY:h1"}
+	adapter := helpClientAdapter{client: stub}
+
+	if _, err := adapter.OpenHelp(app.HelpOpenRequest{Context: "tree", TargetPane: "wY:p3K"}); err != nil {
+		t.Fatalf("OpenHelp(tree) error = %v", err)
+	}
+	treeWant := herdr.OpenPaneRequest{
+		Plugin:     pluginID,
+		Entrypoint: herdr.HelpEntrypointID,
+		Placement:  "overlay",
+		TargetPane: "wY:p3K",
+		Focus:      true,
+		Env:        []string{herdr.HelpContextEnv + "=tree"},
+	}
+	if !reflect.DeepEqual(stub.openRequest, treeWant) {
+		t.Fatalf("OpenPane(tree) request = %#v, want %#v", stub.openRequest, treeWant)
+	}
+}
+
 func TestPreviewClientAdapterClosePanePassesThrough(t *testing.T) {
 	stub := &stubPaneClient{}
 	if err := (paneClientAdapter{client: stub}).ClosePane("wY:p9Z"); err != nil {

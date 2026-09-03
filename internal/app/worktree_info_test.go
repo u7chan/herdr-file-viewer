@@ -11,7 +11,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/u7chan/herdr-file-viewer/internal/browser"
 	"github.com/u7chan/herdr-file-viewer/internal/filesystem"
 )
 
@@ -219,18 +218,14 @@ func TestReloadKeyRefreshesGitInfoRow(t *testing.T) {
 	}
 	rowBefore := gitInfoRowY(model)
 	switch message := cmd().(type) {
-	case browser.LoadResult:
+	case directoryLoadMsg:
 		model.Update(message)
 	case tea.BatchMsg:
 		for _, reloadCmd := range message {
-			result, ok := reloadCmd().(browser.LoadResult)
-			if !ok {
-				t.Fatalf("reload message = %T, want browser.LoadResult", reloadCmd())
-			}
-			model.Update(result)
+			model.Update(loadResultFromCommand(t, reloadCmd))
 		}
 	default:
-		t.Fatalf("reload message = %T, want browser.LoadResult or tea.BatchMsg", message)
+		t.Fatalf("reload message = %T, want tea.BatchMsg", message)
 	}
 	if fake.worktreeCalls != 2 {
 		t.Fatalf("worktree calls after reload = %d, want 2", fake.worktreeCalls)
@@ -372,18 +367,14 @@ func TestReloadWithGitStatusFailureBlanksTheGitInfoRow(t *testing.T) {
 		t.Fatal("reload returned nil command")
 	}
 	switch message := cmd().(type) {
-	case browser.LoadResult:
+	case directoryLoadMsg:
 		model.Update(message)
 	case tea.BatchMsg:
 		for _, reloadCmd := range message {
-			result, ok := reloadCmd().(browser.LoadResult)
-			if !ok {
-				t.Fatalf("reload message = %T, want browser.LoadResult", reloadCmd())
-			}
-			model.Update(result)
+			model.Update(loadResultFromCommand(t, reloadCmd))
 		}
 	default:
-		t.Fatalf("reload message = %T, want browser.LoadResult or tea.BatchMsg", message)
+		t.Fatalf("reload message = %T, want tea.BatchMsg", message)
 	}
 
 	if rowBefore != gitInfoRowY(model) {
@@ -544,27 +535,22 @@ func TestGitInfoRowTruncatesWithinWidth(t *testing.T) {
 	}
 }
 
-// applyReload dispatches a reload command's message: bubbletea v2 unwraps a
-// single-command Batch into the command itself, so the result may arrive as
-// a bare browser.LoadResult or as a tea.BatchMsg.
+// applyReload dispatches a reload command's message: the result arrives
+// wrapped in the generation-tagged directoryLoadMsg carried by a tea.BatchMsg.
 func applyReload(t *testing.T, model *Model, cmd tea.Cmd) {
 	t.Helper()
 	if cmd == nil {
 		t.Fatal("reload returned nil command")
 	}
 	switch message := cmd().(type) {
-	case browser.LoadResult:
+	case directoryLoadMsg:
 		model.Update(message)
 	case tea.BatchMsg:
 		for _, reloadCmd := range message {
-			result, ok := reloadCmd().(browser.LoadResult)
-			if !ok {
-				t.Fatalf("reload message = %T, want browser.LoadResult", reloadCmd())
-			}
-			model.Update(result)
+			model.Update(loadResultFromCommand(t, reloadCmd))
 		}
 	default:
-		t.Fatalf("reload message = %T, want browser.LoadResult or tea.BatchMsg", message)
+		t.Fatalf("reload message = %T, want tea.BatchMsg", message)
 	}
 }
 
