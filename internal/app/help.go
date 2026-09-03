@@ -20,25 +20,23 @@ const (
 // HelpOpenRequest describes one Help overlay launch.
 type HelpOpenRequest struct {
 	// Context identifies the caller: helpTreeContext or helpPreviewContext.
-	Context    string
-	TargetPane string
+	Context string
 }
 
 // HelpClient is the Herdr overlay capability the tree and preview models
 // need, kept as an interface so the composition root can inject the
 // subprocess implementation and tests can supply deterministic doubles.
 type HelpClient interface {
-	// OpenHelp opens the help entrypoint as a focused overlay beside
-	// targetPane and returns the new pane ID.
+	// OpenHelp opens the help entrypoint as a focused overlay and returns
+	// the new pane ID. Overlays always target the active pane.
 	OpenHelp(request HelpOpenRequest) (paneID string, err error)
 }
 
-// HelpConfig wires a model to the help-overlay capability. A zero config
-// (or a nil Client) keeps h a warning-only no-op, which is the behavior
-// outside a Herdr pane.
+// HelpConfig wires a model to the help-overlay capability. A nil Client
+// keeps h a warning-only no-op, which is how the composition root expresses
+// a missing Herdr pane context.
 type HelpConfig struct {
-	Client     HelpClient
-	TargetPane string
+	Client HelpClient
 }
 
 // helpResultMsg is the outcome of one help overlay launch. The opened pane

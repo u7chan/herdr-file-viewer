@@ -316,7 +316,7 @@ func TestViewAndKeyHandlingPerformNoFilesystemOrCLIWork(t *testing.T) {
 	chdir := &chdirRecorder{}
 	helps := &stubHelpClient{paneID: "wY:h1"}
 	model := NewModelConfigured(root, "", ModelConfig{
-		Help:  HelpConfig{Client: helps, TargetPane: "wY:p3K"},
+		Help:  HelpConfig{Client: helps},
 		Chdir: chdir.chdir,
 	}, fake)
 	completeInitialLoad(t, model)

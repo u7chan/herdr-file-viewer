@@ -36,7 +36,7 @@ func TestTreeHelpKeyOpensFocusedTreeContextOverlay(t *testing.T) {
 	fake.set(root, nil)
 	client := &stubHelpClient{paneID: "wY:h1"}
 	model := NewModelConfigured(root, "", ModelConfig{
-		Help: HelpConfig{Client: client, TargetPane: "wY:p3K"},
+		Help: HelpConfig{Client: client},
 	}, fake)
 	completeInitialLoad(t, model)
 
@@ -52,7 +52,7 @@ func TestTreeHelpKeyOpensFocusedTreeContextOverlay(t *testing.T) {
 	if len(client.requests) != 1 {
 		t.Fatalf("help launches = %d, want 1", len(client.requests))
 	}
-	want := HelpOpenRequest{Context: helpTreeContext, TargetPane: "wY:p3K"}
+	want := HelpOpenRequest{Context: helpTreeContext}
 	if client.requests[0] != want {
 		t.Fatalf("help request = %#v, want %#v", client.requests[0], want)
 	}
@@ -79,9 +79,9 @@ func TestPreviewHelpKeyOpensPreviewContextOverlay(t *testing.T) {
 	if len(client.requests) != 1 {
 		t.Fatalf("help launches = %d, want 1", len(client.requests))
 	}
-	want := HelpOpenRequest{Context: helpPreviewContext, TargetPane: "wY:p9Z"}
+	want := HelpOpenRequest{Context: helpPreviewContext}
 	if client.requests[0] != want {
-		t.Fatalf("help request = %#v, want %#v with the preview pane as target", client.requests[0], want)
+		t.Fatalf("help request = %#v, want %#v with the preview context", client.requests[0], want)
 	}
 }
 
@@ -91,7 +91,7 @@ func TestHelpLaunchDoesNotDuplicateOnRapidRepeatedKeys(t *testing.T) {
 	fake.set(root, nil)
 	client := &stubHelpClient{paneID: "wY:h1"}
 	model := NewModelConfigured(root, "", ModelConfig{
-		Help: HelpConfig{Client: client, TargetPane: "wY:p3K"},
+		Help: HelpConfig{Client: client},
 	}, fake)
 	completeInitialLoad(t, model)
 
@@ -128,7 +128,7 @@ func TestHelpLaunchFailureKeepsCallerStateAndWarns(t *testing.T) {
 	fake.set(root, []filesystem.Entry{{Name: "file", Mode: 0}})
 	client := &stubHelpClient{err: errors.New("daemon down\x1b\n")}
 	model := NewModelConfigured(root, "", ModelConfig{
-		Help: HelpConfig{Client: client, TargetPane: "wY:p3K"},
+		Help: HelpConfig{Client: client},
 	}, fake)
 	completeInitialLoad(t, model)
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
@@ -188,26 +188,26 @@ func TestHelpWithoutHerdrContextWarnsWithoutFallback(t *testing.T) {
 	}
 }
 
-func TestHelpWithClientButNoPaneIDIsTreatedAsNoHerdrContext(t *testing.T) {
+func TestHelpWithoutPaneIDIsTreatedAsNoHerdrContext(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeFileSystem()
 	fake.set(root, nil)
-	client := &stubHelpClient{paneID: "wY:h1"}
-	model := NewModelConfigured(root, "", ModelConfig{
-		Help: HelpConfig{Client: client}, // no TargetPane: outside a Herdr pane
-	}, fake)
+
+	// The composition root expresses "outside a Herdr pane" by leaving the
+	// client unset, so the tree model without a client warns without fallback.
+	model := NewModelConfigured(root, "", ModelConfig{}, fake)
 	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
 
 	if cmd := model.UpdateKey(helpKey); cmd != nil {
-		t.Fatalf("h with an empty target pane returned command %v, want warning-only no-op", cmd)
-	}
-	if len(client.requests) != 0 {
-		t.Fatalf("help launches = %d, want none without a Herdr pane id", len(client.requests))
+		t.Fatalf("h without a help client returned command %v, want warning-only no-op", cmd)
 	}
 	if !strings.Contains(model.warning, "Help unavailable: no Herdr context") {
 		t.Fatalf("warning = %q, want missing-context warning", model.warning)
 	}
 
+	// The preview additionally refuses to launch when its own pane id is
+	// empty even though a client is wired.
 	previewClient := &stubHelpClient{paneID: "wY:h1"}
 	preview := NewPreviewModelWithConfig("/abs/file.md", nil, "", HelpConfig{Client: previewClient})
 	if _, cmd := preview.Update(helpKey); cmd != nil {
@@ -330,7 +330,7 @@ func TestFindModeConsumesCAndHAndBackspaceBeforeRootMenuAndHelp(t *testing.T) {
 	chdir := &chdirRecorder{}
 	helpClient := &stubHelpClient{paneID: "wY:h1"}
 	model := NewModelConfigured(root, "", ModelConfig{
-		Help:  HelpConfig{Client: helpClient, TargetPane: "wY:p3K"},
+		Help:  HelpConfig{Client: helpClient},
 		Chdir: chdir.chdir,
 	}, fake)
 	completeInitialLoad(t, model)

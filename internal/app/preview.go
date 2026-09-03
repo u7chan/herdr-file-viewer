@@ -539,10 +539,11 @@ func (m *PreviewModel) showToast(text string) tea.Cmd {
 	})
 }
 
-// requestHelp opens the preview help overlay. A missing Herdr adapter or a
-// failed launch keeps the preview state untouched and surfaces a footer
-// warning; repeated presses while a launch is in flight are ignored so one
-// overlay is never created twice.
+// requestHelp opens the preview help overlay. A nil client (the composition
+// root leaves it unset outside a Herdr pane) or an empty pane id keeps the
+// preview state untouched and surfaces a footer warning; repeated presses
+// while a launch is in flight are ignored so one overlay is never created
+// twice.
 func (m *PreviewModel) requestHelp() tea.Cmd {
 	if m.helpConfig.Client == nil || m.paneID == "" {
 		m.warning = addWarning(m.warning, "Help unavailable: no Herdr context")
@@ -554,9 +555,8 @@ func (m *PreviewModel) requestHelp() tea.Cmd {
 	}
 	m.helpPending = true
 	client := m.helpConfig.Client
-	targetPane := m.paneID
 	return func() tea.Msg {
-		_, err := client.OpenHelp(HelpOpenRequest{Context: helpPreviewContext, TargetPane: targetPane})
+		_, err := client.OpenHelp(HelpOpenRequest{Context: helpPreviewContext})
 		if err != nil {
 			return helpResultMsg{err: sanitizeDisplay(err.Error())}
 		}

@@ -108,7 +108,7 @@ func TestOpenPaneReportsMissingPaneIDAndErrors(t *testing.T) {
 	}
 }
 
-func TestOpenPaneUsesFocusFlagAndOmitsDirectionForOverlays(t *testing.T) {
+func TestOpenPaneUsesFocusFlagAndOmitsDirectionAndTargetForOverlays(t *testing.T) {
 	runner := &fakeRunner{stdout: `{"result":{"plugin_pane":{"pane":{"pane_id":"wY:h1"}}}}`}
 	client := &CLIPaneClient{runner: runner}
 
@@ -116,7 +116,6 @@ func TestOpenPaneUsesFocusFlagAndOmitsDirectionForOverlays(t *testing.T) {
 		Plugin:     "u7chan.file-viewer",
 		Entrypoint: "help",
 		Placement:  "overlay",
-		TargetPane: "wY:p3K",
 		Focus:      true,
 		Env:        []string{"HERDR_HELP_CONTEXT=tree"},
 	})
@@ -127,12 +126,34 @@ func TestOpenPaneUsesFocusFlagAndOmitsDirectionForOverlays(t *testing.T) {
 		"--plugin", "u7chan.file-viewer",
 		"--entrypoint", "help",
 		"--placement", "overlay",
-		"--target-pane", "wY:p3K",
 		"--focus",
 		"--env", "HERDR_HELP_CONTEXT=tree",
 	}
 	if len(runner.args) != 1 || !reflect.DeepEqual(runner.args[0], want) {
-		t.Fatalf("OpenPane() args = %v, want %v", runner.args, want)
+		t.Fatalf("OpenPane() args = %v, want %v (overlay targets the active pane, so no --target-pane)", runner.args, want)
+	}
+}
+
+func TestOpenPaneIncludesTargetFlagOnlyWhenATargetIsGiven(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"result":{"plugin_pane":{"pane":{"pane_id":"wY:p9Z"}}}}`}
+	client := &CLIPaneClient{runner: runner}
+
+	if _, err := client.OpenPane(OpenPaneRequest{
+		Plugin: "u7chan.file-viewer", Entrypoint: "preview", Placement: "split",
+		TargetPane: "wY:p3K", Direction: "right",
+	}); err != nil {
+		t.Fatalf("OpenPane() error = %v", err)
+	}
+	want := []string{"plugin", "pane", "open",
+		"--plugin", "u7chan.file-viewer",
+		"--entrypoint", "preview",
+		"--placement", "split",
+		"--target-pane", "wY:p3K",
+		"--direction", "right",
+		"--no-focus",
+	}
+	if len(runner.args) != 1 || !reflect.DeepEqual(runner.args[0], want) {
+		t.Fatalf("OpenPane() args = %v, want %v (split keeps its required target)", runner.args, want)
 	}
 }
 

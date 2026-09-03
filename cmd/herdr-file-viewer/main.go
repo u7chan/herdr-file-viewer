@@ -44,10 +44,7 @@ func run() error {
 			TargetPane:  herdr.PaneID(),
 			WorkspaceID: herdr.WorkspaceID(),
 		},
-		Help: app.HelpConfig{
-			Client:     newHelpClient(),
-			TargetPane: herdr.PaneID(),
-		},
+		Help: newHelpConfig(),
 		// Root moves keep the process working directory in sync with the
 		// display root so Herdr attributes the viewed directory to this pane.
 		Chdir: herdr.ChdirRoot,
@@ -56,10 +53,7 @@ func run() error {
 }
 
 func runPreview() error {
-	model := app.NewPreviewModelWithConfig(herdr.PreviewFile(), newPreviewClient(), herdr.PaneID(), app.HelpConfig{
-		Client:     newHelpClient(),
-		TargetPane: herdr.PaneID(),
-	})
+	model := app.NewPreviewModelWithConfig(herdr.PreviewFile(), newPreviewClient(), herdr.PaneID(), newHelpConfig())
 	return runProgram(model)
 }
 
@@ -136,6 +130,17 @@ func (a paneClientAdapter) TagPreview(paneID, file string) error {
 	})
 }
 
+// newHelpConfig wires the help overlay capability when the viewer runs
+// inside a Herdr pane. Overlay panes always target the active pane, so
+// outside a pane there is no active target; the nil client makes h a
+// warning-only no-op there.
+func newHelpConfig() app.HelpConfig {
+	if herdr.PaneID() == "" {
+		return app.HelpConfig{}
+	}
+	return app.HelpConfig{Client: newHelpClient()}
+}
+
 // newHelpClient adapts the herdr CLI implementation to the app-side help
 // interface, fixing the plugin identity, the overlay placement, the focus,
 // and the help context environment value at the composition root.
@@ -148,11 +153,12 @@ type helpClientAdapter struct {
 }
 
 func (a helpClientAdapter) OpenHelp(request app.HelpOpenRequest) (string, error) {
+	// Overlay panes always target the active pane; passing a target would be
+	// rejected by herdr's CLI validation, so the target stays unset.
 	return a.client.OpenPane(herdr.OpenPaneRequest{
 		Plugin:     pluginID,
 		Entrypoint: herdr.HelpEntrypointID,
 		Placement:  "overlay",
-		TargetPane: request.TargetPane,
 		Focus:      true,
 		Env:        []string{herdr.HelpContextEnv + "=" + request.Context},
 	})

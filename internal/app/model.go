@@ -839,12 +839,12 @@ func (m *Model) restoreParentSelection() {
 	m.offset = 0
 }
 
-// requestHelp opens the tree help overlay. A missing Herdr adapter or a
-// failed launch keeps the tree state untouched and surfaces a footer
-// warning; repeated presses while a launch is in flight are ignored so one
-// overlay is never created twice.
+// requestHelp opens the tree help overlay. A nil client (the composition
+// root leaves it unset outside a Herdr pane) or a failed launch keeps the
+// tree state untouched and surfaces a footer warning; repeated presses while
+// a launch is in flight are ignored so one overlay is never created twice.
 func (m *Model) requestHelp() tea.Cmd {
-	if m.helpConfig.Client == nil || m.helpConfig.TargetPane == "" {
+	if m.helpConfig.Client == nil {
 		m.warning = addWarning(m.warning, "Help unavailable: no Herdr context")
 		m.status = m.readyStatus()
 		return nil
@@ -854,9 +854,8 @@ func (m *Model) requestHelp() tea.Cmd {
 	}
 	m.helpPending = true
 	client := m.helpConfig.Client
-	targetPane := m.helpConfig.TargetPane
 	return func() tea.Msg {
-		_, err := client.OpenHelp(HelpOpenRequest{Context: helpTreeContext, TargetPane: targetPane})
+		_, err := client.OpenHelp(HelpOpenRequest{Context: helpTreeContext})
 		if err != nil {
 			return helpResultMsg{err: sanitizeDisplay(err.Error())}
 		}

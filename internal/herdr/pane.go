@@ -164,15 +164,19 @@ func resolvePaneBinary(lookupEnv func(string) (string, bool)) string {
 
 // OpenPane runs `herdr plugin pane open`. Focused overlays pass --focus;
 // every other pane keeps the keyboard focus in the caller's pane through
-// --no-focus. The direction flag is omitted when the placement does not use
-// one (overlay).
+// --no-focus. The target flag is included only when a target pane is given:
+// overlay and popup placements always target the active pane and reject an
+// explicit target, while split and zoomed placements require one. The
+// direction flag is omitted when the placement does not use one (overlay).
 func (c *CLIPaneClient) OpenPane(request OpenPaneRequest) (string, error) {
 	args := []string{
 		"plugin", "pane", "open",
 		"--plugin", request.Plugin,
 		"--entrypoint", request.Entrypoint,
 		"--placement", request.Placement,
-		"--target-pane", request.TargetPane,
+	}
+	if request.TargetPane != "" {
+		args = append(args, "--target-pane", request.TargetPane)
 	}
 	if request.Direction != "" {
 		args = append(args, "--direction", request.Direction)

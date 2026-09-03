@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"os"
 	"reflect"
 	"testing"
 
@@ -136,7 +137,7 @@ func TestPreviewClientAdapterTagPreviewReportsMetadata(t *testing.T) {
 
 func TestHelpClientAdapterOpenHelpFixesPluginOverlayFocusAndContext(t *testing.T) {
 	stub := &stubPaneClient{openID: "wY:h1"}
-	paneID, err := (helpClientAdapter{client: stub}).OpenHelp(app.HelpOpenRequest{Context: "preview", TargetPane: "wY:p9Z"})
+	paneID, err := (helpClientAdapter{client: stub}).OpenHelp(app.HelpOpenRequest{Context: "preview"})
 	if err != nil || paneID != "wY:h1" {
 		t.Fatalf("OpenHelp() = %q, %v; want pane id without error", paneID, err)
 	}
@@ -144,16 +145,15 @@ func TestHelpClientAdapterOpenHelpFixesPluginOverlayFocusAndContext(t *testing.T
 		Plugin:     pluginID,
 		Entrypoint: herdr.HelpEntrypointID,
 		Placement:  "overlay",
-		TargetPane: "wY:p9Z",
 		Focus:      true,
 		Env:        []string{herdr.HelpContextEnv + "=preview"},
 	}
 	if !reflect.DeepEqual(stub.openRequest, want) {
-		t.Fatalf("OpenPane() request = %#v, want %#v", stub.openRequest, want)
+		t.Fatalf("OpenPane() request = %#v, want %#v (overlay targets the active pane, so no target)", stub.openRequest, want)
 	}
 
 	stub.openErr = errors.New("daemon down")
-	if _, err := (helpClientAdapter{client: stub}).OpenHelp(app.HelpOpenRequest{Context: "tree", TargetPane: "wY:p3K"}); err == nil {
+	if _, err := (helpClientAdapter{client: stub}).OpenHelp(app.HelpOpenRequest{Context: "tree"}); err == nil {
 		t.Fatal("OpenHelp() error = nil, want propagated error")
 	}
 }
@@ -162,19 +162,31 @@ func TestHelpClientAdapterOpenHelpKeepsEveryCallerContextDistinct(t *testing.T) 
 	stub := &stubPaneClient{openID: "wY:h1"}
 	adapter := helpClientAdapter{client: stub}
 
-	if _, err := adapter.OpenHelp(app.HelpOpenRequest{Context: "tree", TargetPane: "wY:p3K"}); err != nil {
+	if _, err := adapter.OpenHelp(app.HelpOpenRequest{Context: "tree"}); err != nil {
 		t.Fatalf("OpenHelp(tree) error = %v", err)
 	}
 	treeWant := herdr.OpenPaneRequest{
 		Plugin:     pluginID,
 		Entrypoint: herdr.HelpEntrypointID,
 		Placement:  "overlay",
-		TargetPane: "wY:p3K",
 		Focus:      true,
 		Env:        []string{herdr.HelpContextEnv + "=tree"},
 	}
 	if !reflect.DeepEqual(stub.openRequest, treeWant) {
 		t.Fatalf("OpenPane(tree) request = %#v, want %#v", stub.openRequest, treeWant)
+	}
+}
+
+func TestNewHelpConfigWiresTheClientOnlyInsideAHerdrPane(t *testing.T) {
+	if err := os.Unsetenv(herdr.PaneIDEnv); err != nil {
+		t.Fatalf("Unsetenv(%s): %v", herdr.PaneIDEnv, err)
+	}
+	if config := newHelpConfig(); config.Client != nil {
+		t.Fatalf("newHelpConfig() outside a Herdr pane = %#v, want nil client", config)
+	}
+	t.Setenv(herdr.PaneIDEnv, "wY:p3K")
+	if config := newHelpConfig(); config.Client == nil {
+		t.Fatal("newHelpConfig() inside a Herdr pane = nil client, want the wired client")
 	}
 }
 
