@@ -593,9 +593,10 @@ func previewCopyStatus(text string, selection previewSelection) string {
 }
 
 // showHorizontalScrollbar reports whether the bottom scrollbar row is
-// reserved. Wrap mode never scrolls horizontally.
+// reserved. Unsupported previews do not render scrollable content, and wrap
+// mode never scrolls horizontally.
 func (m *PreviewModel) showHorizontalScrollbar() bool {
-	return !m.wrap && m.maxContentWidth > m.contentWidth()
+	return m.category == previewCategoryText && !m.wrap && m.maxContentWidth > m.contentWidth()
 }
 
 // previewLayoutHeights splits the pane into header, body, horizontal

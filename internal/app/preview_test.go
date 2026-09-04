@@ -823,6 +823,25 @@ func TestPreviewModelShowsUnsupportedLabelForBinaryCategory(t *testing.T) {
 	}
 }
 
+func TestPreviewUnsupportedBinaryOmitsHorizontalScrollbar(t *testing.T) {
+	reader := &fakePreviewReader{content: []byte(strings.Repeat("x", 100))}
+	model := NewPreviewModel("/abs/bundle.zip", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 24, Height: 7})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	if model.maxContentWidth <= model.contentWidth() {
+		t.Fatalf("test binary content is not wider than the pane: max %d, content %d", model.maxContentWidth, model.contentWidth())
+	}
+	if model.showHorizontalScrollbar() {
+		t.Fatal("unsupported binary preview shows a horizontal scrollbar")
+	}
+
+	_, _, hbar, _ := previewLayoutHeights(model.height, model.showHorizontalScrollbar())
+	if hbar != 0 {
+		t.Fatalf("horizontal scrollbar height = %d, want 0", hbar)
+	}
+}
+
 func TestPreviewLayoutHeightsReservesHorizontalBarRow(t *testing.T) {
 	for _, test := range []struct {
 		height     int
