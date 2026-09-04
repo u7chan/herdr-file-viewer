@@ -23,8 +23,10 @@ status snapshot, OSC 52 path copying, and a Help popup. `Enter` opens a text
 preview pane with line numbers, syntax highlighting for recognized source,
 configuration, and markup filenames (files without a matching lexer remain
 plain text), wrap and space-visualization toggles, mouse text selection with
-OSC 52 copy, horizontal scrolling, and manual reload. Files and Preview
-panes are restored in place after a Herdr session restore.
+OSC 52 copy, horizontal scrolling, and manual reload. Eligible Files and
+Preview panes are restored in place after a Herdr session restore; a
+candidate whose foreground never becomes an idle shell and a preview
+without usable saved state are left untouched.
 
 It stays read-only: it does not provide markdown rendering, file editing,
 external commands acting on files, install/distribution automation, or
