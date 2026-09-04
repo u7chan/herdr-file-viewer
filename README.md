@@ -244,9 +244,10 @@ Scrolling in the preview:
   kept in original line coordinates, the same selected content produces the
   identical copied text in either wrap mode. The copied text is what is
   displayed (tabs expanded, sanitized).
-- `Left` / `Right`: horizontal scrolling (only while wrap is off). A
-  horizontal scrollbar row appears above the footer with the same track
-  click and thumb drag behavior.
+- `Left` / `Right`: horizontal scrolling (only while wrap is off and the
+  preview is text). A horizontal scrollbar row appears above the footer when
+  text overflows horizontally, with the same track click and thumb drag
+  behavior.
 - `q` / `Ctrl+C`: quit. The split pane disappears and focus returns to the
   tree (Herdr standard behavior).
 
