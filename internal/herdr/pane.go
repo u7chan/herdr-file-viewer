@@ -29,8 +29,8 @@ const (
 	// PreviewEntrypointID identifies the preview pane entrypoint.
 	PreviewEntrypointID = "preview"
 	// HelpEntrypointID identifies the popup help pane entrypoint.
-	HelpEntrypointID = "help"
-	paneNotFoundCode      = "pane_not_found"
+	HelpEntrypointID       = "help"
+	paneNotFoundCode       = "pane_not_found"
 	pluginPaneNotFoundCode = "plugin_pane_not_found"
 )
 

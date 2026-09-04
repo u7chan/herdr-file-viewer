@@ -615,10 +615,10 @@ func TestRunPreviewSwapSwitchesARestoredPreviewToAnotherFile(t *testing.T) {
 
 func TestRunPreviewSwapStateRemovalFailureDoesNotBlockTheSwitch(t *testing.T) {
 	client := &stubPreviewClient{
-		openPaneID:      "wY:p9Z",
-		getPane:         PreviewPane{PaneID: "wY:p1", File: "/old.md"},
-		getFound:        true,
-		removeStateErr:  errors.New("state dir unwritable"),
+		openPaneID:     "wY:p9Z",
+		getPane:        PreviewPane{PaneID: "wY:p1", File: "/old.md"},
+		getFound:       true,
+		removeStateErr: errors.New("state dir unwritable"),
 	}
 	paneID, err := runPreviewSwap(client, "wY", "wY:p1", "/new.md", "wY:p3K")
 	if err != nil {
