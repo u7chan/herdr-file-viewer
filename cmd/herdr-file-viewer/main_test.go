@@ -3,9 +3,11 @@ package main
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/u7chan/herdr-file-viewer/internal/app"
 	"github.com/u7chan/herdr-file-viewer/internal/herdr"
 )
@@ -248,6 +250,236 @@ func TestRunStartupRestorePassesWithoutTUI(t *testing.T) {
 
 	if err := run(); err != nil {
 		t.Fatalf("run() error = %v, want nil", err)
+	}
+}
+
+// TestRunPreviewChangesWorkingDirectoryToPreviewFileParent is intentionally
+// sequential because runPreview changes the process working directory.
+func TestRunPreviewChangesWorkingDirectoryToPreviewFileParent(t *testing.T) {
+	parent := t.TempDir()
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(original); err != nil {
+			t.Errorf("restore cwd %q: %v", original, err)
+		}
+	})
+
+	t.Setenv(herdr.PreviewFileEnv, filepath.Join(parent, "preview.md"))
+	t.Setenv(herdr.PluginStateDirEnv, "")
+	t.Setenv(herdr.SocketPathEnv, "")
+
+	started := false
+	originalRunProgram := runProgram
+	runProgram = func(tea.Model) error {
+		started = true
+		return nil
+	}
+	t.Cleanup(func() { runProgram = originalRunProgram })
+
+	if err := runPreview(); err != nil {
+		t.Fatalf("runPreview() error = %v, want preview to start", err)
+	}
+	if !started {
+		t.Fatal("runPreview() did not start the preview program")
+	}
+	got, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if got != parent {
+		t.Fatalf("preview cwd = %q, want file parent %q", got, parent)
+	}
+}
+
+func TestRunPreviewKeepsWorkingDirectoryWhenParentIsMissing(t *testing.T) {
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+
+	file := filepath.Join(t.TempDir(), "missing", "preview.md")
+	t.Setenv(herdr.PreviewFileEnv, file)
+	t.Setenv(herdr.PluginStateDirEnv, "")
+	t.Setenv(herdr.SocketPathEnv, "")
+
+	started := false
+	originalRunProgram := runProgram
+	runProgram = func(tea.Model) error {
+		started = true
+		return nil
+	}
+	t.Cleanup(func() { runProgram = originalRunProgram })
+
+	if err := runPreview(); err != nil {
+		t.Fatalf("runPreview() error = %v, want preview to start after missing parent", err)
+	}
+	if !started {
+		t.Fatal("runPreview() did not start the preview program after missing parent")
+	}
+	got, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if got != original {
+		t.Fatalf("cwd after missing preview parent = %q, want unchanged %q", got, original)
+	}
+}
+
+func TestRunPreviewKeepsWorkingDirectoryWhenParentCannotBeEntered(t *testing.T) {
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+
+	file := filepath.Join(t.TempDir(), "preview.md")
+	t.Setenv(herdr.PreviewFileEnv, file)
+	t.Setenv(herdr.PluginStateDirEnv, "")
+	t.Setenv(herdr.SocketPathEnv, "")
+
+	var attempted string
+	originalChdirPreview := chdirPreview
+	chdirPreview = func(path string) error {
+		attempted = path
+		return os.ErrPermission
+	}
+	t.Cleanup(func() { chdirPreview = originalChdirPreview })
+
+	started := false
+	originalRunProgram := runProgram
+	runProgram = func(tea.Model) error {
+		started = true
+		return nil
+	}
+	t.Cleanup(func() { runProgram = originalRunProgram })
+
+	if err := runPreview(); err != nil {
+		t.Fatalf("runPreview() error = %v, want preview to start after cwd failure", err)
+	}
+	if !started {
+		t.Fatal("runPreview() did not start the preview program after cwd failure")
+	}
+	if want := filepath.Dir(file); attempted != want {
+		t.Fatalf("chdir path = %q, want preview parent %q", attempted, want)
+	}
+	got, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if got != original {
+		t.Fatalf("cwd after failed preview chdir = %q, want unchanged %q", got, original)
+	}
+}
+
+func TestRunPreviewDoesNotChangeWorkingDirectoryWhenFileIsUnsetOrEmpty(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		unset bool
+	}{
+		{name: "unset", unset: true},
+		{name: "empty"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			original, err := os.Getwd()
+			if err != nil {
+				t.Fatalf("Getwd() error = %v", err)
+			}
+			if test.unset {
+				previous, wasSet := os.LookupEnv(herdr.PreviewFileEnv)
+				if err := os.Unsetenv(herdr.PreviewFileEnv); err != nil {
+					t.Fatalf("Unsetenv(%s): %v", herdr.PreviewFileEnv, err)
+				}
+				t.Cleanup(func() {
+					if wasSet {
+						_ = os.Setenv(herdr.PreviewFileEnv, previous)
+					} else {
+						_ = os.Unsetenv(herdr.PreviewFileEnv)
+					}
+				})
+			} else {
+				t.Setenv(herdr.PreviewFileEnv, "")
+			}
+			t.Setenv(herdr.PluginStateDirEnv, "")
+			t.Setenv(herdr.SocketPathEnv, "")
+
+			called := false
+			originalChdirPreview := chdirPreview
+			chdirPreview = func(string) error {
+				called = true
+				return nil
+			}
+			t.Cleanup(func() { chdirPreview = originalChdirPreview })
+
+			started := false
+			originalRunProgram := runProgram
+			runProgram = func(tea.Model) error {
+				started = true
+				return nil
+			}
+			t.Cleanup(func() { runProgram = originalRunProgram })
+
+			if err := runPreview(); err != nil {
+				t.Fatalf("runPreview() error = %v, want preview to start", err)
+			}
+			if !started {
+				t.Fatal("runPreview() did not start the preview program")
+			}
+			if called {
+				t.Fatal("runPreview() attempted a cwd change for an unset preview file")
+			}
+			got, err := os.Getwd()
+			if err != nil {
+				t.Fatalf("Getwd() error = %v", err)
+			}
+			if got != original {
+				t.Fatalf("cwd for empty preview file = %q, want unchanged %q", got, original)
+			}
+		})
+	}
+}
+
+func TestRunRestoredPreviewEntrypointChangesWorkingDirectoryToPreviewParent(t *testing.T) {
+	// Session restore execs this same binary with the preview entrypoint and
+	// HERDR_PREVIEW_FILE set; run() must reach the same runPreview path.
+	parent := t.TempDir()
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(original); err != nil {
+			t.Errorf("restore cwd %q: %v", original, err)
+		}
+	})
+
+	t.Setenv(herdr.PluginEventEnv, "")
+	t.Setenv(herdr.EntrypointIDEnv, herdr.PreviewEntrypointID)
+	t.Setenv(herdr.PreviewFileEnv, filepath.Join(parent, "restored.md"))
+	t.Setenv(herdr.PluginStateDirEnv, "")
+	t.Setenv(herdr.SocketPathEnv, "")
+
+	started := false
+	originalRunProgram := runProgram
+	runProgram = func(tea.Model) error {
+		started = true
+		return nil
+	}
+	t.Cleanup(func() { runProgram = originalRunProgram })
+
+	if err := run(); err != nil {
+		t.Fatalf("run() error = %v, want restored preview to start", err)
+	}
+	if !started {
+		t.Fatal("run() did not start the restored preview program")
+	}
+	got, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if got != parent {
+		t.Fatalf("restored preview cwd = %q, want file parent %q", got, parent)
 	}
 }
 

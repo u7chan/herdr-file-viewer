@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -90,6 +91,12 @@ var runStartupRestore = func() error {
 
 func runPreview() error {
 	file := herdr.PreviewFile()
+	if file != "" {
+		parent := filepath.Dir(file)
+		if err := chdirPreview(parent); err != nil {
+			fmt.Fprintf(os.Stderr, "enter preview directory %q: %v\n", parent, err)
+		}
+	}
 	// The preview file must survive a cold session restore, so it is saved
 	// durably per pane before the TUI starts; the startup restore reads it
 	// back into the same pane.
@@ -100,12 +107,18 @@ func runPreview() error {
 	return runProgram(model)
 }
 
+// chdirPreview is a variable so composition tests can cover the best-effort
+// failure path without depending on filesystem permissions.
+var chdirPreview = os.Chdir
+
 func runHelp() error {
 	model := app.NewHelpModel(herdr.HelpContext())
 	return runProgram(model)
 }
 
-func runProgram(model tea.Model) error {
+// runProgram is a variable so composition tests can exercise entrypoints
+// without starting Bubble Tea.
+var runProgram = func(model tea.Model) error {
 	_, err := tea.NewProgram(model).Run()
 	if errors.Is(err, tea.ErrInterrupted) {
 		return nil
