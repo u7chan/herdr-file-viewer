@@ -565,12 +565,7 @@ func TestFindDirectoryActivationKeepsUnderline(t *testing.T) {
 	if command == nil {
 		t.Fatal("directory click returned nil command, want async load")
 	}
-	message := command()
-	result, ok := message.(browser.LoadResult)
-	if !ok {
-		t.Fatalf("directory click command message = %T, want browser.LoadResult", message)
-	}
-	model.Update(result)
+	model.Update(loadResultFromCommand(t, command))
 	if model.findHighlightQuery != "match" || model.lastQuery != "match" {
 		t.Fatalf("directory click state = highlight %q last %q, want underline kept", model.findHighlightQuery, model.lastQuery)
 	}
