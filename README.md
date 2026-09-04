@@ -12,16 +12,24 @@ onto the parent of the current directory (`Backspace`), and the process
 working directory follows the display root. A Herdr popup shows the full
 key reference from the tree or the preview with `h`.
 
-## Minimum scope
+## Scope
 
-This is the minimum, read-only viewer used inside a Herdr pane. It supports
-lazy directory expansion, cell-aware single-line rendering, recoverable
-directory errors, symlink-as-entry handling, keyboard and mouse scrolling,
-visible scrollbar dragging, left-click selection/toggle, OSC 52 path
-copying, and a text preview pane opened from the tree. Recognized source,
-configuration, and markup filenames receive syntax highlighting, while files
-without a matching lexer remain plain text. It does not provide markdown
-rendering, external actions, editing, install/distribution automation, or
+This is a read-only viewer used inside a Herdr pane. The tree supports lazy
+directory expansion, cell-aware single-line rendering, recoverable directory
+errors, symlink-as-entry handling, keyboard and mouse scrolling with visible
+scrollbar dragging, left-click selection/toggle, find navigation, root moves
+that chdir with the displayed root (`C` / `Backspace`), a Git branch and
+status snapshot, OSC 52 path copying, and a Help popup. `Enter` opens a text
+preview pane with line numbers, syntax highlighting for recognized source,
+configuration, and markup filenames (files without a matching lexer remain
+plain text), wrap and space-visualization toggles, mouse text selection with
+OSC 52 copy, horizontal scrolling, and manual reload. Eligible Files and
+Preview panes are restored in place after a Herdr session restore; a
+candidate whose foreground never becomes an idle shell and a preview
+without usable saved state are left untouched.
+
+It stays read-only: it does not provide markdown rendering, file editing,
+external commands acting on files, install/distribution automation, or
 release tags.
 
 The supported validation target is Linux under WSL2 with Herdr 0.8.2 or newer.
