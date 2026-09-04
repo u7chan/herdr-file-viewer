@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"errors"
 	"image/color"
 	"reflect"
@@ -58,6 +59,185 @@ func TestHighlightPreviewLinesFallsBackToPlainText(t *testing.T) {
 				t.Fatalf("fallback lines = %#v, want plain lines %#v", got, plain)
 			}
 		})
+	}
+}
+
+func TestPreviewHighlightByteCapHighlightsAtOrBelowThreshold(t *testing.T) {
+	for _, size := range []int{previewHighlightMaxBytes - 1, previewHighlightMaxBytes} {
+		t.Run(strconv.Itoa(size)+" bytes", func(t *testing.T) {
+			reader := &fakePreviewReader{content: previewHighlightTestContent(size)}
+			model := NewPreviewModel("/tmp/large.go", nil, "", reader)
+			message := previewLoadResult(t, model.Init())
+			if message.highlightSkipped {
+				t.Fatalf("highlight skipped at %d bytes", size)
+			}
+			if !hasPreviewToken(message.lines, chroma.KeywordDeclaration) {
+				t.Fatalf("lines at %d bytes = %#v, want Go syntax spans", size, message.lines[:2])
+			}
+
+			model.Update(message)
+			if model.highlightSkipped || model.status != readyStatus {
+				t.Fatalf("model at %d bytes = skipped %v, status %q; want highlighted and ready", size, model.highlightSkipped, model.status)
+			}
+		})
+	}
+}
+
+func TestPreviewHighlightByteCapSkipsLargeContentAndShowsMutedFooterStatus(t *testing.T) {
+	reader := &fakePreviewReader{content: previewHighlightTestContent(previewHighlightMaxBytes + 1)}
+	model := NewPreviewModel("/tmp/large.go", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	message := previewLoadResult(t, model.Init())
+	if !message.highlightSkipped {
+		t.Fatal("large content did not skip highlighting")
+	}
+	if hasPreviewSyntaxSpans(message.lines) {
+		t.Fatal("large content produced syntax spans")
+	}
+
+	model.Update(message)
+	if !model.highlightSkipped || model.status != previewHighlightSkippedStatus {
+		t.Fatalf("loaded model = skipped %v, status %q; want skipped status", model.highlightSkipped, model.status)
+	}
+	if hasPreviewSyntaxSpans(model.lines) {
+		t.Fatal("loaded large content produced syntax spans")
+	}
+	if len(model.displayLines) != len(model.lines) {
+		t.Fatalf("display lines = %d, want %d without a body marker", len(model.displayLines), len(model.lines))
+	}
+
+	view := model.View().Content
+	rows := strings.Split(view, "\n")
+	footer := rows[len(rows)-1]
+	if got := strings.TrimRight(ansi.Strip(footer), " "); got != " "+previewHighlightSkippedStatus {
+		t.Fatalf("footer = %q, want muted highlight status", got)
+	}
+	if !strings.Contains(footer, "38;5;240") {
+		t.Fatalf("footer = %q, want muted foreground", footer)
+	}
+	for _, row := range rows[model.bodyStartY() : model.bodyStartY()+model.bodyHeight()] {
+		if strings.Contains(ansi.Strip(row), previewHighlightSkippedStatus) {
+			t.Fatalf("body row = %q, must not include a highlight marker", row)
+		}
+	}
+}
+
+func TestPreviewHighlightByteCapAppliesOnReload(t *testing.T) {
+	reader := &fakePreviewReader{content: previewHighlightTestContent(previewHighlightMaxBytes)}
+	model := NewPreviewModel("/tmp/reload.go", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+	if model.highlightSkipped || !hasPreviewToken(model.lines, chroma.KeywordDeclaration) {
+		t.Fatalf("initial content = skipped %v, lines %#v; want highlighted", model.highlightSkipped, model.lines[:2])
+	}
+
+	reader.content = previewHighlightTestContent(previewHighlightMaxBytes + 1)
+	_, cmd := model.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	message, ok := cmd().(previewLoadMsg)
+	if !ok {
+		t.Fatalf("reload message = %T, want previewLoadMsg", cmd())
+	}
+	if !message.reload || !message.highlightSkipped || hasPreviewSyntaxSpans(message.lines) {
+		t.Fatalf("large reload message = %#v, want skipped plain content", message)
+	}
+	model.Update(message)
+	if !model.highlightSkipped || model.status != previewHighlightSkippedStatus || hasPreviewSyntaxSpans(model.lines) {
+		t.Fatalf("large reload = skipped %v, status %q, lines %#v; want skipped plain content", model.highlightSkipped, model.status, model.lines[:2])
+	}
+
+	model.Update(previewToastTimeoutMsg{seq: model.toastSeq})
+	if footer := strings.TrimRight(ansi.Strip(model.renderFooter()), " "); footer != " "+previewHighlightSkippedStatus {
+		t.Fatalf("footer after reload toast = %q, want highlight status", footer)
+	}
+
+	reader.content = previewHighlightTestContent(previewHighlightMaxBytes)
+	_, cmd = model.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	message, ok = cmd().(previewLoadMsg)
+	if !ok {
+		t.Fatalf("second reload message = %T, want previewLoadMsg", cmd())
+	}
+	if message.highlightSkipped || !hasPreviewToken(message.lines, chroma.KeywordDeclaration) {
+		t.Fatalf("small reload message = %#v, want highlighted content", message)
+	}
+	model.Update(message)
+	if model.highlightSkipped || model.status != readyStatus || !hasPreviewToken(model.lines, chroma.KeywordDeclaration) {
+		t.Fatalf("small reload = skipped %v, status %q, lines %#v; want highlighted and ready", model.highlightSkipped, model.status, model.lines[:2])
+	}
+}
+
+func TestPreviewHighlightByteCapKeepsPreviewInvariants(t *testing.T) {
+	reader := &fakePreviewReader{
+		content:   previewHighlightWideTestContent(previewHighlightMaxBytes + 1),
+		truncated: true,
+	}
+	model := NewPreviewModel("/tmp/large.go", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 24, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+	if !model.highlightSkipped || !model.truncated || !model.showHorizontalScrollbar() {
+		t.Fatalf("initial model = skipped %v, truncated %v, horizontal bar %v; want large plain preview", model.highlightSkipped, model.truncated, model.showHorizontalScrollbar())
+	}
+	if hasPreviewSyntaxSpans(model.lines) {
+		t.Fatal("large content produced syntax spans")
+	}
+	marker := model.displayLines[len(model.displayLines)-1]
+	if marker.text != previewTruncatedMarker || !marker.muted || marker.origin != -1 || len(marker.spans) != 0 {
+		t.Fatalf("truncation marker = %#v, want muted marker without syntax spans", marker)
+	}
+	if rendered := model.renderContent(marker, model.contentWidth()); !strings.Contains(rendered, "38;5;240") {
+		t.Fatalf("truncation marker = %q, want muted foreground", rendered)
+	}
+
+	lines := clonePreviewLines(model.lines)
+	model.Update(tea.BackgroundColorMsg{Color: color.RGBA{R: 255, G: 255, B: 255, A: 255}})
+	if !reflect.DeepEqual(model.lines, lines) || hasPreviewSyntaxSpans(model.lines) {
+		t.Fatalf("theme switch changed plain lines: %#v", model.lines[:2])
+	}
+
+	selection := previewSelection{
+		anchor: previewPosition{line: 2, col: 0},
+		focus:  previewPosition{line: 2, col: 4},
+	}
+	model.selection = selection
+	if got := extractSelection(model.lines, selection); got != "xxxx" {
+		t.Fatalf("selection = %q, want plain content", got)
+	}
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: tea.KeyRight})
+	if model.xoffset == 0 {
+		t.Fatal("horizontal scroll did not advance on large plain content")
+	}
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	if !model.wrap || model.xoffset != 0 || hasPreviewSyntaxSpans(model.displayLines) {
+		t.Fatalf("wrapped large preview = wrap %v, xoffset %d, lines %#v; want plain wrapped content", model.wrap, model.xoffset, model.displayLines[:2])
+	}
+	model.selection = selection
+	if got := extractSelection(model.lines, selection); got != "xxxx" {
+		t.Fatalf("wrapped selection = %q, want plain content", got)
+	}
+
+	lines = clonePreviewLines(model.lines)
+	displayLines := clonePreviewLines(model.displayLines)
+	reader.err = errors.New("reload failed")
+	_, cmd := model.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	model.Update(cmd())
+	if !model.highlightSkipped || !strings.Contains(model.status, "Warning: reload failed") || !reflect.DeepEqual(model.lines, lines) || !reflect.DeepEqual(model.displayLines, displayLines) {
+		t.Fatalf("failed reload changed skipped preview: skipped %v, status %q, lines %#v, display %#v", model.highlightSkipped, model.status, model.lines[:2], model.displayLines[:2])
+	}
+
+	unsupportedReader := &fakePreviewReader{content: previewHighlightTestContent(previewHighlightMaxBytes + 1)}
+	unsupported := NewPreviewModel("/tmp/large.zip", nil, "", unsupportedReader)
+	unsupported.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	unsupported.Update(previewLoadResult(t, unsupported.Init()))
+	if unsupported.highlightSkipped || unsupported.status != readyStatus {
+		t.Fatalf("unsupported model = skipped %v, status %q; want unchanged unsupported behavior", unsupported.highlightSkipped, unsupported.status)
+	}
+	unsupportedRenderedView := unsupported.View().Content
+	unsupportedView := ansi.Strip(unsupportedRenderedView)
+	if !strings.Contains(unsupportedView, "Unsupported preview: binary") || strings.Contains(unsupportedView, previewHighlightSkippedStatus) {
+		t.Fatalf("unsupported view = %q, want muted binary label without highlight status", unsupportedView)
+	}
+	unsupportedBody := strings.Split(unsupportedRenderedView, "\n")[unsupported.bodyStartY()]
+	if !strings.Contains(unsupportedBody, "38;5;240") {
+		t.Fatalf("unsupported body = %q, want muted foreground", unsupportedBody)
 	}
 }
 
@@ -214,6 +394,40 @@ func hasPreviewToken(lines []previewLine, want chroma.TokenType) bool {
 		}
 	}
 	return false
+}
+
+func hasPreviewSyntaxSpans(lines []previewLine) bool {
+	for _, line := range lines {
+		if len(line.spans) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func previewHighlightTestContent(size int) []byte {
+	const prefix = "package main\nfunc main() {}\n"
+	if size < len(prefix) {
+		panic("preview highlight test content is smaller than its prefix")
+	}
+	content := []byte(prefix)
+	for len(content)+len("// x\n") <= size {
+		content = append(content, "// x\n"...)
+	}
+	return append(content, bytes.Repeat([]byte(" "), size-len(content))...)
+}
+
+func previewHighlightWideTestContent(size int) []byte {
+	const prefix = "package main\nfunc main() {}\n"
+	wideLine := strings.Repeat("x", 80) + "\n"
+	if size < len(prefix)+len(wideLine) {
+		panic("preview highlight test content is smaller than its prefix")
+	}
+	content := append([]byte(prefix), wideLine...)
+	for len(content)+len("// x\n") <= size {
+		content = append(content, "// x\n"...)
+	}
+	return append(content, bytes.Repeat([]byte(" "), size-len(content))...)
 }
 
 func syntaxStyleEntry(token chroma.TokenType, light bool) chroma.StyleEntry {

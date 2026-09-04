@@ -21,6 +21,9 @@ const (
 	// previewMaxBytes caps the previewed text at 2 MiB; larger files show a
 	// truncated marker after their head.
 	previewMaxBytes = 2 << 20
+	// previewHighlightMaxBytes limits synchronous syntax tokenization while
+	// preserving the larger text-preview budget.
+	previewHighlightMaxBytes = 128 * 1024
 	// previewSniffBytes is the head length used to classify extensionless
 	// content before the text pipeline is allowed to run.
 	previewSniffBytes = 8 * 1024
@@ -36,6 +39,7 @@ const (
 	previewHelpCloseKey              = "q"
 	previewHelpCloseLabel            = "close"
 	previewNoSelectionStatus         = "No selection"
+	previewHighlightSkippedStatus    = "Syntax highlighting skipped (large file)"
 	previewUnsupportedPrefix         = "Unsupported preview: "
 	previewGutterDividerGlyph        = "│"
 	previewHorizontalTrackGlyph      = "─"
@@ -126,10 +130,11 @@ type previewLine struct {
 
 // previewLoadMsg is the result of the preview file read command.
 type previewLoadMsg struct {
-	file      string
-	category  previewCategory
-	lines     []previewLine
-	truncated bool
+	file             string
+	category         previewCategory
+	lines            []previewLine
+	truncated        bool
+	highlightSkipped bool
 	// reload distinguishes a manual reload completion from the initial load.
 	reload bool
 	err    string
@@ -161,12 +166,13 @@ type PreviewModel struct {
 	status  string
 	warning string
 
-	category        previewCategory
-	lines           []previewLine
-	lineCount       int
-	displayLines    []previewLine
-	maxContentWidth int
-	truncated       bool
+	category         previewCategory
+	lines            []previewLine
+	lineCount        int
+	displayLines     []previewLine
+	maxContentWidth  int
+	truncated        bool
+	highlightSkipped bool
 
 	wrap           bool
 	showWhitespace bool
@@ -271,15 +277,17 @@ func (m *PreviewModel) loadCommandFor(reload bool) tea.Cmd {
 		}
 		category := previewCategoryFor(path, content)
 		lines := previewTextLines(content)
-		if category == previewCategoryText {
+		highlightSkipped := category == previewCategoryText && len(content) > previewHighlightMaxBytes
+		if category == previewCategoryText && !highlightSkipped {
 			lines = highlightPreviewLines(path, lines)
 		}
 		return previewLoadMsg{
-			file:      path,
-			category:  category,
-			lines:     lines,
-			truncated: truncated,
-			reload:    reload,
+			file:             path,
+			category:         category,
+			lines:            lines,
+			truncated:        truncated,
+			highlightSkipped: highlightSkipped,
+			reload:           reload,
 		}
 	}
 }
@@ -416,6 +424,7 @@ func (m *PreviewModel) applyPreviewLoad(msg previewLoadMsg) tea.Cmd {
 			m.lineCount = 0
 			m.category = ""
 			m.truncated = false
+			m.highlightSkipped = false
 		}
 		m.warning = addWarning(m.warning, msg.err)
 		m.status = m.readyStatus()
@@ -429,11 +438,15 @@ func (m *PreviewModel) applyPreviewLoad(msg previewLoadMsg) tea.Cmd {
 	m.file = msg.file
 	m.category = msg.category
 	m.truncated = msg.truncated
+	m.highlightSkipped = msg.highlightSkipped
 	m.lines = msg.lines
 	m.lineCount = len(msg.lines)
 	m.maxContentWidth = maxContentWidthFor(msg.lines)
 	m.rebuildDisplayLines()
 	m.status = m.readyStatus()
+	if m.highlightSkipped {
+		m.status = previewHighlightSkippedStatus
+	}
 	if msg.reload {
 		return m.showToast(reloadToastText)
 	}
@@ -941,6 +954,9 @@ func (m *PreviewModel) renderFooter() string {
 	if m.warning != "" {
 		return m.renderLine(m.readyStatus())
 	}
+	if m.status == previewHighlightSkippedStatus {
+		return m.renderMutedLine(m.status)
+	}
 	if m.status != m.readyStatus() {
 		return m.renderLine(m.status)
 	}
@@ -953,6 +969,11 @@ func (m *PreviewModel) renderFooter() string {
 func (m *PreviewModel) renderLine(line string) string {
 	line = strings.Repeat(" ", m.contentLeftPadding()) + sanitizeDisplay(line)
 	return renderStyledLineAt(line, lipgloss.NewStyle(), m.width)
+}
+
+func (m *PreviewModel) renderMutedLine(line string) string {
+	line = strings.Repeat(" ", m.contentLeftPadding()) + sanitizeDisplay(line)
+	return renderStyledLineAt(line, dividerStyle, m.width)
 }
 
 func (m *PreviewModel) contentLeftPadding() int {
