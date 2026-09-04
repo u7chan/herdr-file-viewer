@@ -289,7 +289,15 @@ func TestRunPreviewChangesWorkingDirectoryToPreviewFileParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Getwd() error = %v", err)
 	}
-	if got != parent {
+	wantInfo, err := os.Stat(parent)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", parent, err)
+	}
+	gotInfo, err := os.Stat(got)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", got, err)
+	}
+	if !os.SameFile(wantInfo, gotInfo) {
 		t.Fatalf("preview cwd = %q, want file parent %q", got, parent)
 	}
 }
@@ -478,7 +486,15 @@ func TestRunRestoredPreviewEntrypointChangesWorkingDirectoryToPreviewParent(t *t
 	if err != nil {
 		t.Fatalf("Getwd() error = %v", err)
 	}
-	if got != parent {
+	wantInfo, err := os.Stat(parent)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", parent, err)
+	}
+	gotInfo, err := os.Stat(got)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", got, err)
+	}
+	if !os.SameFile(wantInfo, gotInfo) {
 		t.Fatalf("restored preview cwd = %q, want file parent %q", got, parent)
 	}
 }
