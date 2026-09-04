@@ -37,6 +37,9 @@ type PreviewClient interface {
 	ListPanes(workspaceID string) ([]PreviewPane, error)
 	// TagPreview reports the preview file as a metadata token of paneID.
 	TagPreview(paneID, file string) error
+	// RemovePreviewState forgets the durable restore state of paneID. It is
+	// best-effort: a failed removal never blocks the pane switch.
+	RemovePreviewState(paneID string) error
 }
 
 // PreviewConfig wires the tree model to the preview-pane capability. A zero
@@ -127,6 +130,7 @@ func runPreviewSwap(client PreviewClient, workspaceID, trackedPaneID, file, targ
 			if err := client.ClosePane(trackedPaneID); err != nil {
 				return "", err
 			}
+			_ = client.RemovePreviewState(trackedPaneID)
 			return client.OpenPreview(file, targetPane)
 		}
 	}
@@ -145,6 +149,7 @@ func runPreviewSwap(client PreviewClient, workspaceID, trackedPaneID, file, targ
 		if err := client.ClosePane(pane.PaneID); err != nil {
 			return "", err
 		}
+		_ = client.RemovePreviewState(pane.PaneID)
 		return client.OpenPreview(file, targetPane)
 	}
 	return client.OpenPreview(file, targetPane)

@@ -287,12 +287,14 @@ type stubPreviewClient struct {
 	closeErr   error
 	tagErr     error
 
-	openFiles   []string
-	openTargets []string
-	closed      []string
-	listed      []string
-	tagged      [][2]string
-	getCalls    []string
+	openFiles      []string
+	openTargets    []string
+	closed         []string
+	listed         []string
+	tagged         [][2]string
+	getCalls       []string
+	removedState   []string
+	removeStateErr error
 }
 
 func (s *stubPreviewClient) OpenPreview(file, targetPane string) (string, error) {
@@ -307,6 +309,11 @@ func (s *stubPreviewClient) OpenPreview(file, targetPane string) (string, error)
 func (s *stubPreviewClient) ClosePane(paneID string) error {
 	s.closed = append(s.closed, paneID)
 	return s.closeErr
+}
+
+func (s *stubPreviewClient) RemovePreviewState(paneID string) error {
+	s.removedState = append(s.removedState, paneID)
+	return s.removeStateErr
 }
 
 func (s *stubPreviewClient) GetPane(paneID string) (PreviewPane, bool, error) {

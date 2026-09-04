@@ -1492,3 +1492,40 @@ func cleanAbsolute(path string) string {
 	}
 	return filepath.Clean(absolute)
 }
+
+// TestViewAndResizeDoNotTouchHerdrCliOrState covers the View purity bound
+// for the preview capability: rendering and resizing must never call the
+// preview client (which is implemented by Herdr CLI calls and state files
+// at the composition root). Only an explicit preview activation may.
+func TestViewAndResizeDoNotTouchHerdrCliOrState(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file.txt", Mode: 0}})
+	client := &stubPreviewClient{openPaneID: "wY:p9Z"}
+	model := NewModelWithPreview(root, "", PreviewConfig{Client: client, TargetPane: "wY:p3K", WorkspaceID: "wY"}, fake)
+	completeInitialLoad(t, model)
+
+	_ = model.View()
+	model.Update(tea.WindowSizeMsg{Width: 60, Height: 12})
+	_ = model.View()
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	_ = model.View()
+
+	if len(client.openFiles) != 0 || len(client.closed) != 0 || len(client.listed) != 0 ||
+		len(client.getCalls) != 0 || len(client.tagged) != 0 || len(client.removedState) != 0 {
+		t.Fatalf("view/resize touched the preview client: opens %v closes %v listed %v gets %v tagged %v removed %v",
+			client.openFiles, client.closed, client.listed, client.getCalls, client.tagged, client.removedState)
+	}
+
+	// The same model still activates the preview through the client when
+	// asked, so the purity bound is on View/Update, not on the model.
+	cmd := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter returned nil command")
+	}
+	model.Update(cmd().(previewResultMsg))
+	if len(client.openFiles) != 1 {
+		t.Fatalf("enter did not reach the client: opens = %v", client.openFiles)
+	}
+}

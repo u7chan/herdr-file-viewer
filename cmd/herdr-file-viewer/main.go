@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -23,6 +24,12 @@ func main() {
 }
 
 func run() error {
+	// The startup hook runs once per session restore and must be handled
+	// before any entrypoint check: it restores panes and exits without
+	// starting a TUI.
+	if herdr.IsStartupEvent() {
+		return runStartupRestore()
+	}
 	if herdr.IsPreviewEntrypoint() {
 		return runPreview()
 	}
@@ -52,8 +59,44 @@ func run() error {
 	return runProgram(model)
 }
 
+// runStartupRestore is a variable so the composition tests can substitute a
+// deterministic implementation and prove that the startup event is handled
+// before the TUI entrypoints.
+var runStartupRestore = func() error {
+	env := herdr.RestoreLaunchEnv{
+		PluginRoot:      os.Getenv(herdr.PluginRootEnv),
+		PluginConfigDir: os.Getenv(herdr.PluginConfigDirEnv),
+		PluginStateDir:  os.Getenv(herdr.PluginStateDirEnv),
+		SocketPath:      os.Getenv(herdr.SocketPathEnv),
+		BinPath:         os.Getenv(herdr.BinPathEnv),
+	}
+	if executable, err := os.Executable(); err == nil {
+		env.Executable = executable
+	}
+	client := herdr.NewCLIPaneClient()
+	restorer := herdr.NewRestorer(herdr.RestoreConfig{
+		Client: client,
+		State:  herdr.NewPreviewStateStore(env.PluginStateDir, env.SocketPath),
+		Log:    os.Stdout,
+		Env:    env,
+		Poll:   time.Second,
+		// The 30-second window covers the shell-spawn race right after the
+		// session restore; panes that never become ready stay untouched.
+		Timeout: 30 * time.Second,
+	})
+	restorer.Run()
+	return nil
+}
+
 func runPreview() error {
-	model := app.NewPreviewModelWithConfig(herdr.PreviewFile(), newPreviewClient(), herdr.PaneID(), newHelpConfig())
+	file := herdr.PreviewFile()
+	// The preview file must survive a cold session restore, so it is saved
+	// durably per pane before the TUI starts; the startup restore reads it
+	// back into the same pane.
+	if err := herdr.NewPreviewStateStore(os.Getenv(herdr.PluginStateDirEnv), os.Getenv(herdr.SocketPathEnv)).Save(herdr.PaneID(), file); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+	}
+	model := app.NewPreviewModelWithConfig(file, newPreviewClient(), herdr.PaneID(), newHelpConfig())
 	return runProgram(model)
 }
 
@@ -71,14 +114,19 @@ func runProgram(model tea.Model) error {
 }
 
 // newPreviewClient adapts the herdr CLI implementation to the app-side
-// preview interface, fixing the plugin identity, the split placement, and
-// the metadata token name at the composition root.
+// preview interface, fixing the plugin identity, the split placement, the
+// metadata token name, and the durable restore state at the composition
+// root.
 func newPreviewClient() app.PreviewClient {
-	return paneClientAdapter{client: herdr.NewCLIPaneClient()}
+	return paneClientAdapter{
+		client: herdr.NewCLIPaneClient(),
+		state:  herdr.NewPreviewStateStore(os.Getenv(herdr.PluginStateDirEnv), os.Getenv(herdr.SocketPathEnv)),
+	}
 }
 
 type paneClientAdapter struct {
 	client herdr.PaneClient
+	state  *herdr.PreviewStateStore
 }
 
 func (a paneClientAdapter) OpenPreview(file, targetPane string) (string, error) {
@@ -93,7 +141,18 @@ func (a paneClientAdapter) OpenPreview(file, targetPane string) (string, error) 
 }
 
 func (a paneClientAdapter) ClosePane(paneID string) error {
-	return a.client.ClosePane(paneID)
+	return a.client.ClosePreviewPane(paneID)
+}
+
+// RemovePreviewState forgets the durable restore state of a preview pane
+// the tree just closed. The swap then reopens the preview, whose fresh
+// process writes the new state, so a later session restore never brings the
+// replaced file back.
+func (a paneClientAdapter) RemovePreviewState(paneID string) error {
+	if a.state == nil {
+		return nil
+	}
+	return a.state.Remove(paneID)
 }
 
 func (a paneClientAdapter) GetPane(paneID string) (app.PreviewPane, bool, error) {
