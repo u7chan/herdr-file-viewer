@@ -41,6 +41,11 @@ func (s *stubPaneClient) ClosePane(paneID string) error {
 	return s.closeErr
 }
 
+func (s *stubPaneClient) ClosePreviewPane(paneID string) error {
+	s.closed = append(s.closed, paneID)
+	return s.closeErr
+}
+
 func (s *stubPaneClient) GetPane(paneID string) (herdr.PaneInfo, bool, error) {
 	return s.getInfo, s.getFound, s.getErr
 }
@@ -205,5 +210,69 @@ func TestPreviewClientAdapterClosePanePropagatesFailure(t *testing.T) {
 	stub := &stubPaneClient{closeErr: errors.New("close failed")}
 	if err := (paneClientAdapter{client: stub}).ClosePane("wY:p9Z"); err == nil {
 		t.Fatal("ClosePane() error = nil, want propagated error")
+	}
+}
+
+func TestRunTreatsStartupEventBeforeEntrypointChecks(t *testing.T) {
+	// The startup event must win over every entrypoint: even with a preview
+	// entrypoint and preview file set, run() replaces the TUI with the
+	// restore and returns.
+	t.Setenv(herdr.PluginEventEnv, "startup")
+	t.Setenv(herdr.EntrypointIDEnv, herdr.PreviewEntrypointID)
+	t.Setenv(herdr.PreviewFileEnv, "/abs/file.md")
+
+	original := runStartupRestore
+	runStartupRestore = func() error { return errors.New("startup restore ran") }
+	t.Cleanup(func() { runStartupRestore = original })
+
+	err := run()
+	if err == nil || err.Error() != "startup restore ran" {
+		t.Fatalf("run() error = %v, want the startup restore outcome (no TUI started)", err)
+	}
+}
+
+func TestRunStartupRestorePassesWithoutTUI(t *testing.T) {
+	// A successful restore returns nil immediately: the hook must exit
+	// without entering the Bubble Tea program.
+	t.Setenv(herdr.PluginEventEnv, "startup")
+	t.Setenv(herdr.PluginRootEnv, "/tmp/plugin-root")
+	t.Setenv(herdr.PluginConfigDirEnv, "/tmp/plugin-config")
+	t.Setenv(herdr.PluginStateDirEnv, "/tmp/plugin-state")
+	t.Setenv(herdr.SocketPathEnv, "/tmp/plugin.sock")
+	t.Setenv(herdr.BinPathEnv, "/usr/bin/herdr")
+	t.Setenv(herdr.EntrypointIDEnv, "files")
+
+	original := runStartupRestore
+	runStartupRestore = func() error { return nil }
+	t.Cleanup(func() { runStartupRestore = original })
+
+	if err := run(); err != nil {
+		t.Fatalf("run() error = %v, want nil", err)
+	}
+}
+
+func TestPreviewClientAdapterRemovePreviewStateDeletesDurableState(t *testing.T) {
+	stateDir := t.TempDir()
+	store := herdr.NewPreviewStateStore(stateDir, "/tmp/herdr.sock")
+	if err := store.Save("wY:p9Z", "/abs/file.md"); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	adapter := paneClientAdapter{client: &stubPaneClient{}, state: store}
+
+	if err := adapter.RemovePreviewState("wY:p9Z"); err != nil {
+		t.Fatalf("RemovePreviewState() error = %v", err)
+	}
+	if _, found, err := store.Load("wY:p9Z"); err != nil || found {
+		t.Fatalf("state after removal = found %v, error %v; want gone (a later restore must not resurrect the closed preview)", found, err)
+	}
+}
+
+func TestPreviewClientAdapterRemovePreviewStateToleratesMissingState(t *testing.T) {
+	adapter := paneClientAdapter{
+		client: &stubPaneClient{},
+		state:  herdr.NewPreviewStateStore(t.TempDir(), "/tmp/herdr.sock"),
+	}
+	if err := adapter.RemovePreviewState("wY:p9Z"); err != nil {
+		t.Fatalf("RemovePreviewState() error = %v, want nil for a pane without state", err)
 	}
 }

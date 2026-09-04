@@ -92,7 +92,7 @@ func TestOpenPaneReportsMissingPaneIDAndErrors(t *testing.T) {
 		want   string
 	}{
 		{name: "empty pane id", stdout: `{"result":{"plugin_pane":{"pane":{}}}}`, want: "no pane_id"},
-		{name: "error envelope on stderr", stderr: `{"error":{"code":"plugin_pane_not_found","message":"entrypoint missing"},"id":"cli:plugin"}`, err: errors.New("exit status 1"), want: "plugin_pane_not_found"},
+		{name: "error envelope on stderr", stderr: `{"error":{"code":"plugin_pane_not_found","message":"entrypoint missing"},"id":"cli:plugin"}`, err: errors.New("exit status 1"), want: "plugin pane not found"},
 		{name: "CLI missing", err: errors.New("executable not found"), want: "herdr CLI"},
 		{name: "unparseable response", stdout: "not json", want: "parse herdr CLI output"},
 	} {
@@ -255,5 +255,191 @@ func TestReportMetadataPlacesPaneIDFirstAndParsesSilentSuccess(t *testing.T) {
 	failing := &CLIPaneClient{runner: &fakeRunner{err: fmt.Errorf("exit status 2")}}
 	if err := failing.ReportMetadata(ReportMetadataRequest{PaneID: "wY:p9Z", Source: "s"}); err == nil {
 		t.Fatal("ReportMetadata() error = nil, want exit status error")
+	}
+}
+
+func TestListWorkspacesParsesWorkspaceIDs(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[
+		{"workspace_id":"wA","label":"alpha","number":1},
+		{"workspace_id":"wB","label":"beta","number":2}
+	]}}`}
+	client := &CLIPaneClient{runner: runner}
+
+	workspaces, err := client.ListWorkspaces()
+	if err != nil {
+		t.Fatalf("ListWorkspaces() error = %v", err)
+	}
+	if len(workspaces) != 2 || workspaces[0].WorkspaceID != "wA" || workspaces[1].Label != "beta" {
+		t.Fatalf("ListWorkspaces() = %#v, want both workspaces", workspaces)
+	}
+	if !reflect.DeepEqual(runner.args[0], []string{"workspace", "list"}) {
+		t.Fatalf("ListWorkspaces() args = %v, want plain workspace list", runner.args)
+	}
+}
+
+func TestProcessInfoParsesForegroundProcesses(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"id":"cli:pane:process_info","result":{"process_info":{
+		"pane_id":"wY:p1",
+		"foreground_processes":[
+			{"pid":1,"name":"bash","argv":["/bin/bash"]},
+			{"pid":2,"name":"git","argv":["/usr/bin/git","status"]}
+		]
+	},"type":"pane_process_info"}}`}
+	client := &CLIPaneClient{runner: runner}
+
+	info, err := client.ProcessInfo("wY:p1")
+	if err != nil {
+		t.Fatalf("ProcessInfo() error = %v", err)
+	}
+	want := PaneProcessInfo{
+		PaneID: "wY:p1",
+		ForegroundProcesses: []PaneProcess{
+			{Name: "bash", Argv: []string{"/bin/bash"}},
+			{Name: "git", Argv: []string{"/usr/bin/git", "status"}},
+		},
+	}
+	if !reflect.DeepEqual(info, want) {
+		t.Fatalf("ProcessInfo() = %#v, want %#v", info, want)
+	}
+	if !reflect.DeepEqual(runner.args[0], []string{"pane", "process-info", "--pane", "wY:p1"}) {
+		t.Fatalf("ProcessInfo() args = %v, want explicit --pane targeting", runner.args)
+	}
+}
+
+func TestProcessInfoHandlesMissingForegroundList(t *testing.T) {
+	client := &CLIPaneClient{runner: &fakeRunner{stdout: `{"result":{"process_info":{"pane_id":"wY:p1"}}}`}}
+	info, err := client.ProcessInfo("wY:p1")
+	if err != nil {
+		t.Fatalf("ProcessInfo() error = %v", err)
+	}
+	if len(info.ForegroundProcesses) != 0 {
+		t.Fatalf("ProcessInfo() = %#v, want no foreground processes", info)
+	}
+}
+
+func TestRunCommandPassesTheCommandAsOneArgument(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"id":"cli:pane:run","result":{"ok":true}}`}
+	client := &CLIPaneClient{runner: runner}
+
+	command := "exec env HERDR_PLUGIN_ENTRYPOINT_ID=files '/path with space' /bin/viewer"
+	if err := client.RunCommand("wY:p9Z", command); err != nil {
+		t.Fatalf("RunCommand() error = %v", err)
+	}
+	want := []string{"pane", "run", "wY:p9Z", command}
+	if len(runner.args) != 1 || !reflect.DeepEqual(runner.args[0], want) {
+		t.Fatalf("RunCommand() args = %v, want %v (command stays one argument)", runner.args, want)
+	}
+}
+
+func TestClosePreviewPaneUsesPluginCloseForOwnedPanes(t *testing.T) {
+	client := &CLIPaneClient{runner: &fakeRunner{stdout: `{"result":{"pane_id":"wY:p9Z"}}`}}
+	if err := client.ClosePreviewPane("wY:p9Z"); err != nil {
+		t.Fatalf("ClosePreviewPane() error = %v", err)
+	}
+	runner := client.runner.(*fakeRunner)
+	want := []string{"plugin", "pane", "close", "wY:p9Z"}
+	if len(runner.args) != 1 || !reflect.DeepEqual(runner.args[0], want) {
+		t.Fatalf("ClosePreviewPane() args = %v, want plugin close for owned panes", runner.args)
+	}
+}
+
+func TestClosePreviewPaneFallsBackToPlainPaneCloseForRestoredPanes(t *testing.T) {
+	runner := &seqRunner{calls: []seqCall{
+		{stderr: `{"error":{"code":"plugin_pane_not_found","message":"plugin pane not found"},"id":"cli:plugin"}`, err: errors.New("exit status 1")},
+		{stdout: `{"result":{"ok":true}}`},
+	}}
+	client := &CLIPaneClient{runner: runner}
+
+	if err := client.ClosePreviewPane("wY:p9Z"); err != nil {
+		t.Fatalf("ClosePreviewPane() error = %v, want the plain close fallback", err)
+	}
+	if len(runner.args) != 2 {
+		t.Fatalf("ClosePreviewPane() calls = %v, want plugin close then plain close", runner.args)
+	}
+	if !reflect.DeepEqual(runner.args[1], []string{"pane", "close", "wY:p9Z"}) {
+		t.Fatalf("ClosePreviewPane() fallback args = %v, want plain pane close", runner.args[1])
+	}
+}
+
+func TestClosePreviewPaneToleratesAlreadyMissingPaneOnFallback(t *testing.T) {
+	runner := &seqRunner{calls: []seqCall{
+		{stderr: `{"error":{"code":"plugin_pane_not_found","message":"plugin pane not found"},"id":"cli:plugin"}`, err: errors.New("exit status 1")},
+		{stderr: `{"error":{"code":"pane_not_found","message":"gone"},"id":"cli:pane"}`, err: errors.New("exit status 1")},
+	}}
+	client := &CLIPaneClient{runner: runner}
+	if err := client.ClosePreviewPane("wY:p9Z"); err != nil {
+		t.Fatalf("ClosePreviewPane() error = %v, want the missing-pane fallback to succeed", err)
+	}
+	if len(runner.args) != 2 {
+		t.Fatalf("ClosePreviewPane() calls = %v, want plugin close then plain close", runner.args)
+	}
+}
+
+// seqRunner answers each invocation with the next canned response, so one
+// fake can model CLI sequences such as plugin-close then fallback-close.
+type seqCall struct {
+	stdout string
+	stderr string
+	err    error
+}
+
+type seqRunner struct {
+	calls []seqCall
+	args  [][]string
+}
+
+func (r *seqRunner) Run(args ...string) (string, string, error) {
+	r.args = append(r.args, append([]string(nil), args...))
+	index := len(r.args) - 1
+	if index < len(r.calls) {
+		call := r.calls[index]
+		return call.stdout, call.stderr, call.err
+	}
+	return "", "", errors.New("unexpected extra CLI call")
+}
+
+func TestGetPaneParsesLabelAndSavedCWD(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"id":"cli:pane:get","result":{"pane":{
+		"pane_id":"wY:p1","workspace_id":"wY","tab_id":"wY:t1",
+		"label":"Files","cwd":"/home/u7dev/work space"
+	},"type":"pane_info"}}`}
+	client := &CLIPaneClient{runner: runner}
+
+	info, found, err := client.GetPane("wY:p1")
+	if err != nil || !found {
+		t.Fatalf("GetPane() = %#v, %v, %v; want found pane", info, found, err)
+	}
+	if info.Label != "Files" || info.CWD != "/home/u7dev/work space" || info.WorkspaceID != "wY" || info.TabID != "wY:t1" {
+		t.Fatalf("GetPane() info = %#v, want label, cwd, workspace, and tab", info)
+	}
+}
+
+func TestListPanesParsesLabelsAndSavedCWDs(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"id":"cli:pane:list","result":{"panes":[
+		{"pane_id":"wY:p1","workspace_id":"wY","tab_id":"wY:t1","label":"Files","cwd":"/a"},
+		{"pane_id":"wY:p2","workspace_id":"wY","tab_id":"wY:t1","label":"Preview","cwd":"/b","tokens":{"preview":"/b/file.md"}}
+	],"type":"pane_list"}}`}
+	client := &CLIPaneClient{runner: runner}
+
+	panes, err := client.ListPanes("wY")
+	if err != nil {
+		t.Fatalf("ListPanes() error = %v", err)
+	}
+	if panes[0].Label != "Files" || panes[0].CWD != "/a" {
+		t.Fatalf("ListPanes()[0] = %#v, want Files label and cwd", panes[0])
+	}
+	if panes[1].Label != "Preview" || panes[1].Tokens["preview"] != "/b/file.md" {
+		t.Fatalf("ListPanes()[1] = %#v, want Preview label and token", panes[1])
+	}
+}
+
+func TestIsStartupEventMatchesPluginEventEnv(t *testing.T) {
+	t.Setenv(PluginEventEnv, "startup")
+	if !IsStartupEvent() {
+		t.Fatal("IsStartupEvent() = false with HERDR_PLUGIN_EVENT=startup")
+	}
+	t.Setenv(PluginEventEnv, "worktree.created")
+	if IsStartupEvent() {
+		t.Fatal("IsStartupEvent() = true with a non-startup event")
 	}
 }

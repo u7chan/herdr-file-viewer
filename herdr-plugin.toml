@@ -10,6 +10,14 @@ title = "Files"
 placement = "split"
 command = ["./bin/herdr-file-viewer"]
 
+# One-shot session restore: after a cold restore Herdr brings the Files /
+# Preview panes back as plain shells with their labels, and this hook execs
+# the viewer binary back into those panes in place. It must exit; the hook
+# never starts a TUI (HERDR_PLUGIN_EVENT=startup is handled before the
+# entrypoint checks).
+[[startup]]
+command = ["./bin/herdr-file-viewer"]
+
 [[panes]]
 id = "preview"
 title = "Preview"

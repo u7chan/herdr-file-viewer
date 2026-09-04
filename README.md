@@ -92,6 +92,57 @@ Root moves keep the same invariant: `C` below and `Backspace` above change
 the displayed root and chdir into it as one operation, so splits opened
 from the viewer always inherit the directory being browsed.
 
+## Session restore
+
+The manifest registers a `[[startup]]` hook that runs the same
+`bin/herdr-file-viewer` binary once after Herdr restores the session. The
+hook never starts the TUI: it looks for panes whose label is exactly
+`Files` or `Preview` in every workspace and execs the viewer back into
+those panes in place, so pane ID, tab, layout, focus, and label survive a
+cold session restore without creating, closing, or moving any pane.
+
+The startup hook is one-shot and has no resident daemon. A candidate pane
+is only replaced when its foreground is an idle known shell (bash, zsh, sh,
+fish, dash, ksh); a pane that already runs the viewer (live handoff) is
+left alone, and any other foreground (a running command, a prompt helper)
+is re-checked once per second for about 30 seconds before the pane is left
+untouched. Every candidate is logged as `restored`, `already`, `skipped`,
+or `timeout` with its reason on the hook's stdout, which `herdr plugin log
+list --plugin u7chan.file-viewer` shows.
+
+Files panes are restored from the pane's own saved cwd, so a root moved
+with `C` / `Backspace` comes back at the moved root; the pane-specific
+Herdr context (including that cwd) is passed to the restored process
+explicitly, never reused from the hook's own context. Preview panes restore
+the file they showed before the restart: every preview writes its file to
+a per-pane state file under `HERDR_PLUGIN_STATE_DIR`, namespaced by the
+server socket so state never leaks across Herdr servers. A Preview pane
+without usable state (for example one opened before this feature existed)
+is skipped instead of turning into an empty preview, and state files of
+panes that no longer exist are cleaned up at the next hook run. Restore
+state is deliberately kept when the server stops.
+
+A preview pane restored this way has no Herdr plugin ownership, so when the
+tree switches it to another file the close falls back from
+`plugin pane close` to the plain `pane close` for panes already verified as
+previews by their metadata; no unrelated pane is ever closed.
+
+To verify restore behavior on a disposable server without touching
+production sockets or state, run the smoke with a short isolated config and
+state:
+
+```bash
+SMOKE=/tmp/hfv-restore-smoke
+mkdir -p "$SMOKE"
+export XDG_CONFIG_HOME="$SMOKE/config"
+export XDG_STATE_HOME="$SMOKE/state"
+export HERDR_SESSION=hfv-restore-test
+unset HERDR_SOCKET_PATH
+herdr server &          # isolated headless server
+herdr plugin link "$PWD"
+# open Files / Preview panes, then: herdr server stop; herdr server
+```
+
 ### Operations
 
 - `Up` / `Down` or `j` / `k`: move the selection one row without reading the filesystem; the viewport follows it.

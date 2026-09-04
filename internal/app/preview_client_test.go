@@ -24,6 +24,7 @@ func TestRunPreviewSwapKeepsOnePreviewForTheFile(t *testing.T) {
 		wantPaneID   string
 		wantOpens    int
 		wantCloses   []string
+		wantRemoved  []string
 		wantGetCalls int
 		wantList     int
 	}{
@@ -49,6 +50,7 @@ func TestRunPreviewSwapKeepsOnePreviewForTheFile(t *testing.T) {
 			wantPaneID:   "wY:p9Z",
 			wantOpens:    1,
 			wantCloses:   []string{"wY:p1"},
+			wantRemoved:  []string{"wY:p1"},
 			wantGetCalls: 1,
 		},
 		{
@@ -72,6 +74,7 @@ func TestRunPreviewSwapKeepsOnePreviewForTheFile(t *testing.T) {
 			wantPaneID:   "wY:p9Z",
 			wantOpens:    1,
 			wantCloses:   []string{"wY:p2"},
+			wantRemoved:  []string{"wY:p2"},
 			wantGetCalls: 1,
 			wantList:     1,
 		},
@@ -103,6 +106,7 @@ func TestRunPreviewSwapKeepsOnePreviewForTheFile(t *testing.T) {
 			wantPaneID:   "wY:p9Z",
 			wantOpens:    1,
 			wantCloses:   []string{"wY:p1"},
+			wantRemoved:  []string{"wY:p1"},
 			wantGetCalls: 1,
 		},
 	}
@@ -122,6 +126,9 @@ func TestRunPreviewSwapKeepsOnePreviewForTheFile(t *testing.T) {
 			}
 			if !reflect.DeepEqual(client.closed, test.wantCloses) {
 				t.Fatalf("closed = %v, want %v", client.closed, test.wantCloses)
+			}
+			if !reflect.DeepEqual(client.removedState, test.wantRemoved) {
+				t.Fatalf("removed state = %v, want %v", client.removedState, test.wantRemoved)
 			}
 			if len(client.getCalls) != test.wantGetCalls {
 				t.Fatalf("get calls = %v, want %d", client.getCalls, test.wantGetCalls)
@@ -574,5 +581,53 @@ func TestPreviewActivationOpensSymlinkToFile(t *testing.T) {
 	model.Update(cmd().(previewResultMsg))
 	if len(client.openFiles) != 1 || client.openFiles[0] != link {
 		t.Fatalf("symlink enter opened %v, want %q", client.openFiles, link)
+	}
+}
+
+// TestRunPreviewSwapSwitchesARestoredPreviewToAnotherFile covers the
+// restored-preview flow: the pane carries the preview token, has no plugin
+// ownership, and must be closed and reopened when the tree moves to another
+// file. The swap forgets the stale restore state so the old file cannot
+// come back on the next session restore.
+func TestRunPreviewSwapSwitchesARestoredPreviewToAnotherFile(t *testing.T) {
+	client := &stubPreviewClient{
+		openPaneID: "wY:p9Z",
+		getPane:    PreviewPane{PaneID: "wY:pOld", File: "/pre view/old=file.md"},
+		getFound:   true,
+	}
+	paneID, err := runPreviewSwap(client, "wY", "wY:pOld", "/new file.md", "wY:p3K")
+	if err != nil {
+		t.Fatalf("runPreviewSwap() error = %v", err)
+	}
+	if paneID != "wY:p9Z" {
+		t.Fatalf("runPreviewSwap() pane ID = %q, want the reopened pane", paneID)
+	}
+	if got, want := client.closed, []string{"wY:pOld"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("closed = %v, want the restored preview pane closed", got)
+	}
+	if got, want := client.removedState, []string{"wY:pOld"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("removed state = %v, want the stale restore state forgotten", got)
+	}
+	if got, want := client.openFiles, []string{"/new file.md"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("opens = %v, want the new file", got)
+	}
+}
+
+func TestRunPreviewSwapStateRemovalFailureDoesNotBlockTheSwitch(t *testing.T) {
+	client := &stubPreviewClient{
+		openPaneID:      "wY:p9Z",
+		getPane:         PreviewPane{PaneID: "wY:p1", File: "/old.md"},
+		getFound:        true,
+		removeStateErr:  errors.New("state dir unwritable"),
+	}
+	paneID, err := runPreviewSwap(client, "wY", "wY:p1", "/new.md", "wY:p3K")
+	if err != nil {
+		t.Fatalf("runPreviewSwap() error = %v, want the swap to continue after a state removal failure", err)
+	}
+	if paneID != "wY:p9Z" {
+		t.Fatalf("runPreviewSwap() pane ID = %q, want the reopened pane", paneID)
+	}
+	if got, want := client.closed, []string{"wY:p1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("closed = %v, want the old preview closed", got)
 	}
 }
