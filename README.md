@@ -151,6 +151,53 @@ herdr plugin link "$PWD"
 # open Files / Preview panes, then: herdr server stop; herdr server
 ```
 
+## Preferences
+
+Hand-edited settings and the mutable preview toggles are stored in one JSON
+document, `preferences.json`, under `HERDR_PLUGIN_CONFIG_DIR` (for the
+linked plugin: `~/.config/herdr/plugins/config/u7chan.file-viewer/`):
+
+```json
+{
+  "appearance": { "mode": "auto" },
+  "icons": { "base_set": "font-awesome-solid" },
+  "preview": { "wrap": false, "show_whitespace": false }
+}
+```
+
+Every key is optional; missing keys and empty strings resolve to the
+built-in defaults (`auto`, `font-awesome-solid`, and both preview toggles
+off). The file is read once at process start, so hand edits apply on the
+next launch, and unknown keys or sections are ignored when reading. On the
+first run inside a Herdr pane the file is created with the default document
+so the hand-editing entry point exists; a `w`/`s` save rewrites the document
+from the known schema only, so hand-written unknown keys or sections are
+dropped at the first toggle save. Deleting the file resets every preference
+(the next launch recreates it with the defaults).
+
+| Key | Description | Supported values | Default |
+| --- | --- | --- | --- |
+| `appearance.mode` | Appearance palette mode | `auto`, `light`, `dark` | `auto` |
+| `icons.base_set` | Folder / unknown-file glyph set | `font-awesome-solid`, `font-awesome-outline`, `material`, `codicon` | `font-awesome-solid` |
+| `preview.wrap` | Initial `w` toggle state in new preview panes | `true`, `false` | `false` |
+| `preview.show_whitespace` | Initial `s` toggle state in new preview panes | `true`, `false` | `false` |
+
+- `appearance.mode`: `auto` keeps the OSC 11 background detection with the
+dark fallback; `light` and `dark` fix the palette regardless of the terminal
+response.
+- `icons.base_set`: switches only the closed folder, open folder, and
+unknown-file glyphs; everything else (extension icons, symlink, HOME, Git,
+colors) is unchanged.
+- `preview.wrap` / `preview.show_whitespace`: toggling in a preview pane
+saves the changed item immediately, so a later preview pane opens with the
+last used value; already-open previews are not live-synced.
+
+A `preferences.json` whose JSON, known types, or known enum values are
+invalid is rejected whole: the viewer falls back to the built-in defaults
+and shows a brief footer toast. A missing file never warns. `w` writes use
+a simple file overwrite (no fsync/rename); a failed write keeps the toggle
+applied and shows a footer warning.
+
 ### Operations
 
 - `Up` / `Down` or `j` / `k`: move the selection one row without reading the filesystem; the viewport follows it.

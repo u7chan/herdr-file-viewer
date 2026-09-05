@@ -109,6 +109,17 @@ type Model struct {
 
 	// The zero value keeps the existing dark palette until detection succeeds.
 	lightBackground bool
+	// appearanceFixed disables OSC 11 adaptation when preferences fix the
+	// palette, so light/dark render deterministically even in ANSI-256-only
+	// terminals.
+	appearanceFixed bool
+	// iconBaseSet is the resolved base glyph set for the three basic tree
+	// icons (closed folder, open folder, unknown file).
+	iconBaseSet treeIconSet
+	// preferencesWarning is the startup toast for a rejected
+	// preferences.json; empty means the document loaded cleanly or was
+	// absent (a normal first run).
+	preferencesWarning string
 
 	loading bool
 	status  string
@@ -146,14 +157,21 @@ type Model struct {
 }
 
 // ModelConfig carries the optional composition-root adapters for the tree
-// model: the preview pane capability, the help popup capability, and the
-// process cwd sync used by root moves.
+// model: the preview pane capability, the help popup capability, the
+// process cwd sync used by root moves, and the resolved startup
+// preferences.
 type ModelConfig struct {
 	Preview PreviewConfig
 	Help    HelpConfig
 	// Chdir moves the process working directory into a new display root.
 	// The zero value skips the cwd sync while the display root still moves.
 	Chdir func(path string) error
+	// Preferences carries the resolved appearance and icon preferences from
+	// preferences.json. The zero value keeps every built-in default.
+	Preferences Preferences
+	// PreferencesWarning is shown as a startup toast when preferences.json
+	// was rejected; empty means no toast.
+	PreferencesWarning string
 }
 
 // NewModel constructs the tree without reading the filesystem. A filesystem
@@ -180,13 +198,16 @@ func NewModelConfigured(root, warning string, config ModelConfig, fileSystems ..
 	}
 
 	m := &Model{
-		warning:       sanitizeDisplay(warning),
-		pending:       make(map[string]struct{}),
-		fileSystem:    fileSystem,
-		previewConfig: config.Preview,
-		helpConfig:    config.Help,
-		chdir:         config.Chdir,
+		warning:            sanitizeDisplay(warning),
+		pending:            make(map[string]struct{}),
+		fileSystem:         fileSystem,
+		previewConfig:      config.Preview,
+		helpConfig:         config.Help,
+		chdir:              config.Chdir,
+		preferencesWarning: sanitizeDisplay(config.PreferencesWarning),
 	}
+	m.lightBackground, m.appearanceFixed = resolveAppearance(config.Preferences.AppearanceMode)
+	m.iconBaseSet = iconBaseSetForName(config.Preferences.IconBaseSet)
 	m.status = m.readyStatus()
 
 	tree, err := browser.NewTree(root, fileSystem)
@@ -199,11 +220,23 @@ func NewModelConfigured(root, warning string, config ModelConfig, fileSystems ..
 	return m
 }
 
-// Init requests the terminal background, expands the root, and returns the
-// first directory read as a command.
+// Init requests the terminal background (unless preferences fix the
+// palette), expands the root, and returns the first directory read as a
+// command. A rejected preferences.json surfaces as a startup toast.
 func (m *Model) Init() tea.Cmd {
-	commands := []tea.Cmd{tea.RequestBackgroundColor}
-	if m == nil || m.tree == nil {
+	commands := make([]tea.Cmd, 0, 3)
+	if m == nil {
+		return tea.Batch(commands...)
+	}
+	if !m.appearanceFixed {
+		commands = append(commands, tea.RequestBackgroundColor)
+	}
+	if m.preferencesWarning != "" {
+		commands = append(commands, func() tea.Msg {
+			return preferencesWarningMsg{text: m.preferencesWarning}
+		})
+	}
+	if m.tree == nil {
 		return tea.Batch(commands...)
 	}
 
@@ -233,7 +266,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.BackgroundColorMsg:
-		m.lightBackground = !msg.IsDark()
+		if !m.appearanceFixed {
+			m.lightBackground = !msg.IsDark()
+		}
+	case preferencesWarningMsg:
+		return m, m.showToast(msg.text)
 	case directoryLoadMsg:
 		if msg.gen != m.generation {
 			// The result belongs to a superseded root; dropping it without
@@ -1162,7 +1199,7 @@ func (m *Model) renderRowWidth(index int, row browser.VisibleRow, width int) str
 		return ""
 	}
 
-	icons := iconsFor(defaultTreeIconSet)
+	icons := iconsFor(m.iconBaseSet)
 	indent := strings.Repeat("  ", max(0, row.Depth-1))
 	isRoot := row.Node.Parent() == nil
 	name := row.Node.Name()

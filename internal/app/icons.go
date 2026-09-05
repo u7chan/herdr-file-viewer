@@ -182,6 +182,25 @@ func iconsFor(set treeIconSet) treeIcons {
 	}
 }
 
+// iconBaseSetForName maps a resolved preferences icons.base_set name onto
+// the internal set, switching only the three basic glyphs. Unknown names
+// keep the default set; the preferences store validates the document, so
+// this only guards hand-built configs.
+func iconBaseSetForName(name string) treeIconSet {
+	switch name {
+	case "font-awesome-outline":
+		return iconSetFontAwesomeOutline
+	case "material":
+		return iconSetMaterial
+	case "codicon":
+		return iconSetCodicon
+	case "font-awesome-solid":
+		return iconSetFontAwesomeSolid
+	default:
+		return defaultTreeIconSet
+	}
+}
+
 func fileIconFor(name, fallback string) string {
 	if icon, ok := exactNameIcons[strings.ToLower(name)]; ok {
 		return icon
