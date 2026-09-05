@@ -24,6 +24,9 @@ type Preferences struct {
 	// closed folder, open folder, and unknown-file glyphs. Empty and unknown
 	// values fall back to the built-in font-awesome-solid set.
 	IconBaseSet string
+	// Actions carries the resolved default-action command strings; empty
+	// strings keep Ctrl+Enter a silent no-op and hide the Help rows.
+	Actions DefaultActions
 }
 
 const (

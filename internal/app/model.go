@@ -142,6 +142,13 @@ type Model struct {
 	helpConfig  HelpConfig
 	helpPending bool
 
+	// actions are the resolved default-action commands; empty means the
+	// action is unset and Ctrl+Enter stays a silent no-op.
+	actions DefaultActions
+	// defaultActionRunner launches assembled default-action commands
+	// detached from the TUI; nil keeps Ctrl+Enter a no-op.
+	defaultActionRunner DefaultActionRunner
+
 	// generation distinguishes the current root from superseded ones: load
 	// results tagged with an older generation are dropped before they can
 	// touch the new tree's state.
@@ -169,6 +176,9 @@ type ModelConfig struct {
 	// Preferences carries the resolved appearance and icon preferences from
 	// preferences.json. The zero value keeps every built-in default.
 	Preferences Preferences
+	// DefaultAction launches configured default-action commands detached
+	// from the TUI. The zero value keeps Ctrl+Enter a no-op.
+	DefaultAction DefaultActionRunner
 	// PreferencesWarning is shown as a startup toast when preferences.json
 	// was rejected; empty means no toast.
 	PreferencesWarning string
@@ -198,13 +208,15 @@ func NewModelConfigured(root, warning string, config ModelConfig, fileSystems ..
 	}
 
 	m := &Model{
-		warning:            sanitizeDisplay(warning),
-		pending:            make(map[string]struct{}),
-		fileSystem:         fileSystem,
-		previewConfig:      config.Preview,
-		helpConfig:         config.Help,
-		chdir:              config.Chdir,
-		preferencesWarning: sanitizeDisplay(config.PreferencesWarning),
+		warning:             sanitizeDisplay(warning),
+		pending:             make(map[string]struct{}),
+		fileSystem:          fileSystem,
+		previewConfig:       config.Preview,
+		helpConfig:          config.Help,
+		chdir:               config.Chdir,
+		preferencesWarning:  sanitizeDisplay(config.PreferencesWarning),
+		actions:             config.Preferences.Actions,
+		defaultActionRunner: config.DefaultAction,
 	}
 	m.lightBackground, m.appearanceFixed = resolveAppearance(config.Preferences.AppearanceMode)
 	m.iconBaseSet = iconBaseSetForName(config.Preferences.IconBaseSet)
@@ -286,6 +298,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = m.readyStatus()
 			}
 		}
+	case defaultActionResultMsg:
+		if msg.err != "" {
+			m.warning = addWarning(m.warning, "Default action: "+msg.err)
+			if !m.loading {
+				m.status = m.readyStatus()
+			}
+		}
 	case toastTimeoutMsg:
 		if msg.seq == m.toastSeq {
 			m.toast = ""
@@ -343,6 +362,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.collapseOrMoveToParent()
 		case "enter":
 			return m, m.openPreviewOnActivate()
+		case "ctrl+enter":
+			return m, m.runDefaultAction()
 		}
 	case previewResultMsg:
 		if msg.seq != m.previewSeq {
@@ -652,6 +673,50 @@ func (m *Model) reloadTree(showToast bool) tea.Cmd {
 	m.loading = true
 	m.status = loadingStatus
 	return tea.Batch(commands...)
+}
+
+// defaultActionResultMsg is the outcome of one default-action launch.
+// Successful spawns carry an empty err: the detached command runs on its
+// own and needs no further bookkeeping in the tree.
+type defaultActionResultMsg struct {
+	err string
+}
+
+// runDefaultAction runs the per-type default action for the selected row:
+// the actions.file command on files and the actions.folder command on
+// directories. An unset action, an unset runner, or a nil selection keeps
+// Ctrl+Enter a silent no-op: no toast, no warning, no command.
+func (m *Model) runDefaultAction() tea.Cmd {
+	node := m.selectedNode()
+	if node == nil || m.defaultActionRunner == nil {
+		return nil
+	}
+	if node.IsDirectory() {
+		if m.actions.Folder == "" {
+			return nil
+		}
+		return m.launchDefaultAction(m.actions.Folder, actionPathTokenFolder, node.Path())
+	}
+	if m.actions.File == "" {
+		return nil
+	}
+	return m.launchDefaultAction(m.actions.File, actionPathTokenFile, node.Path())
+}
+
+// launchDefaultAction substitutes the token with the shell-quoted path and
+// starts the assembled command through the injected runner inside a
+// command, so Update never blocks on the launch. The runner detaches the
+// child (new session, no TUI streams), so the tree keeps working whether
+// or not the launched program finishes.
+func (m *Model) launchDefaultAction(template, token, path string) tea.Cmd {
+	runner := m.defaultActionRunner
+	command := defaultActionCommand(template, token, path)
+	return func() tea.Msg {
+		if err := runner.Run(command); err != nil {
+			return defaultActionResultMsg{err: sanitizeDisplay(err.Error())}
+		}
+		return defaultActionResultMsg{}
+	}
 }
 
 // directoryLoadMsg wraps one browser load result with the model generation

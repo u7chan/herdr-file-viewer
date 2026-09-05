@@ -60,7 +60,12 @@ func run() error {
 		Preferences: app.Preferences{
 			AppearanceMode: prefs.AppearanceMode,
 			IconBaseSet:    prefs.IconBaseSet,
+			Actions: app.DefaultActions{
+				File:   prefs.ActionFile,
+				Folder: prefs.ActionFolder,
+			},
 		},
+		DefaultAction:      newDefaultActionRunner(),
 		PreferencesWarning: prefsWarning,
 	})
 	return runProgram(model)
@@ -144,7 +149,15 @@ func runPreview() error {
 var chdirPreview = os.Chdir
 
 func runHelp() error {
-	model := app.NewHelpModel(herdr.HelpContext())
+	// The popup renders its own reference rows; the configured default
+	// actions read the same preferences.json so the Ctrl+Enter rows appear
+	// exactly when the action command is non-empty. A rejected document is
+	// irrelevant here: its defaults render the fixed reference only.
+	prefs, _ := loadPreferences()
+	model := app.NewHelpModel(herdr.HelpContext(), app.DefaultActions{
+		File:   prefs.ActionFile,
+		Folder: prefs.ActionFolder,
+	})
 	return runProgram(model)
 }
 

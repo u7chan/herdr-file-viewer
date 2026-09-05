@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -51,6 +52,103 @@ func TestPreferencesStoreLoadRejectsFailedFirstRunCreation(t *testing.T) {
 	}
 	if prefs != (Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}) {
 		t.Fatalf("Load() = %#v, want defaults on failed creation", prefs)
+	}
+}
+
+func TestPreferencesStoreLoadResolvesActionsSection(t *testing.T) {
+	configDir := t.TempDir()
+	writePreferences(t, configDir, `{
+		"actions": {
+			"file": "zed <filepath>",
+			"folder": "open <dirpath>"
+		}
+	}`)
+	prefs, err := NewPreferencesStore(configDir).Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if prefs.ActionFile != "zed <filepath>" || prefs.ActionFolder != "open <dirpath>" {
+		t.Fatalf("Load() actions = %q / %q, want the configured command strings", prefs.ActionFile, prefs.ActionFolder)
+	}
+}
+
+func TestPreferencesStoreLoadTreatsMissingOrEmptyActionsAsUnset(t *testing.T) {
+	tests := map[string]string{
+		"missing section": `{}`,
+		"empty strings":   `{"actions": {"file": "", "folder": ""}}`,
+		"empty section":   `{"actions": {}}`,
+		"null section":    `{"actions": null}`,
+		"only file":       `{"actions": {"file": "zed <filepath>"}}`,
+		"only folder":     `{"actions": {"folder": "open <dirpath>"}}`,
+	}
+	for name, content := range tests {
+		t.Run(name, func(t *testing.T) {
+			configDir := t.TempDir()
+			writePreferences(t, configDir, content)
+			prefs, err := NewPreferencesStore(configDir).Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v, want no error for unset actions", err)
+			}
+			if name == "only file" {
+				if prefs.ActionFile != "zed <filepath>" || prefs.ActionFolder != "" {
+					t.Fatalf("Load() actions = %q / %q, want only the file action set", prefs.ActionFile, prefs.ActionFolder)
+				}
+				return
+			}
+			if name == "only folder" {
+				if prefs.ActionFile != "" || prefs.ActionFolder != "open <dirpath>" {
+					t.Fatalf("Load() actions = %q / %q, want only the folder action set", prefs.ActionFile, prefs.ActionFolder)
+				}
+				return
+			}
+			want := Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}
+			if prefs != want {
+				t.Fatalf("Load() = %#v, want %#v (missing/empty actions are never an error)", prefs, want)
+			}
+		})
+	}
+}
+
+func TestPreferencesStoreFirstRunDocumentIncludesEmptyActionsSection(t *testing.T) {
+	configDir := t.TempDir()
+	store := NewPreferencesStore(configDir)
+	if _, err := store.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(configDir, preferencesFileName))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	var doc preferencesDoc
+	if err := json.Unmarshal(content, &doc); err != nil {
+		t.Fatalf("created %s = %q is not valid JSON: %v", preferencesFileName, content, err)
+	}
+	if doc.Actions.File != "" || doc.Actions.Folder != "" {
+		t.Fatalf("created document actions = %q / %q, want an empty actions section", doc.Actions.File, doc.Actions.Folder)
+	}
+	if !strings.Contains(string(content), `"actions"`) {
+		t.Fatalf("created document = %q, want an explicit actions section in the default document", content)
+	}
+}
+
+func TestPreferencesStoreSavePreviewWrapPreservesHandEditedActions(t *testing.T) {
+	configDir := t.TempDir()
+	writePreferences(t, configDir, `{
+		"preview": {"show_whitespace": true},
+		"actions": {"file": "zed <filepath>", "folder": "open <dirpath>"}
+	}`)
+	store := NewPreferencesStore(configDir)
+
+	if err := store.SavePreviewWrap(true); err != nil {
+		t.Fatalf("SavePreviewWrap() error = %v", err)
+	}
+	prefs, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if prefs.ActionFile != "zed <filepath>" || prefs.ActionFolder != "open <dirpath>" {
+		t.Fatalf("Load() after save = actions %q / %q, want the hand-edited actions to survive the toggle write", prefs.ActionFile, prefs.ActionFolder)
 	}
 }
 
@@ -140,6 +238,8 @@ func TestPreferencesStoreLoadRejectsWrongTypes(t *testing.T) {
 		"appearance as number":    `{"appearance": 5}`,
 		"base_set as boolean":     `{"icons": {"base_set": true}}`,
 		"show_whitespace as text": `{"preview": {"show_whitespace": "on"}}`,
+		"file action as number":   `{"actions": {"file": 5}}`,
+		"actions as string":       `{"actions": "zed"}`,
 	}
 	for name, content := range tests {
 		t.Run(name, func(t *testing.T) {

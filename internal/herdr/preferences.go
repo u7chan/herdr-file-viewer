@@ -25,6 +25,12 @@ type Preferences struct {
 	IconBaseSet           string // one of the four basic icon set names; defaults to "font-awesome-solid"
 	PreviewWrap           bool
 	PreviewShowWhitespace bool
+	// ActionFile and ActionFolder are the configured per-type default
+	// action command strings; empty means the action is unset. Hand-edited
+	// strings are evaluated by the user's interactive shell, so any content
+	// is accepted without validation.
+	ActionFile   string
+	ActionFolder string
 }
 
 const (
@@ -46,6 +52,7 @@ type preferencesDoc struct {
 	Appearance appearanceDoc `json:"appearance"`
 	Icons      iconsDoc      `json:"icons"`
 	Preview    previewDoc    `json:"preview"`
+	Actions    actionsDoc    `json:"actions"`
 }
 
 type appearanceDoc struct {
@@ -59,6 +66,11 @@ type iconsDoc struct {
 type previewDoc struct {
 	Wrap           bool `json:"wrap"`
 	ShowWhitespace bool `json:"show_whitespace"`
+}
+
+type actionsDoc struct {
+	File   string `json:"file"`
+	Folder string `json:"folder"`
 }
 
 // PreferencesStore persists the single preferences document under
@@ -120,8 +132,9 @@ func preferencesDefaults() Preferences {
 }
 
 // defaultPreferencesDoc is the document written on first run. The preview
-// toggles are emitted as explicit false values so the created file shows
-// every key a user can edit.
+// toggles are emitted as explicit false values and the action strings as
+// explicit empty values so the created file shows every key a user can
+// edit; either representation resolves to the same defaults.
 func defaultPreferencesDoc() preferencesDoc {
 	return preferencesDoc{
 		Appearance: appearanceDoc{Mode: defaultAppearanceMode},
@@ -149,6 +162,8 @@ func (d preferencesDoc) resolve() (Preferences, error) {
 		IconBaseSet:           baseSet,
 		PreviewWrap:           d.Preview.Wrap,
 		PreviewShowWhitespace: d.Preview.ShowWhitespace,
+		ActionFile:            d.Actions.File,
+		ActionFolder:          d.Actions.Folder,
 	}, nil
 }
 
@@ -169,8 +184,9 @@ func validIconBaseSet(name string) bool {
 }
 
 // SavePreviewWrap persists the wrap toggle. Only the changed key is merged
-// into the current document, so hand-edited appearance/icons sections and
-// another preview's independent show_whitespace value survive the write.
+// into the current document, so hand-edited appearance/icons/actions
+// sections and another preview's independent show_whitespace value survive
+// the write.
 func (s *PreferencesStore) SavePreviewWrap(wrap bool) error {
 	return s.updatePreview(func(doc *preferencesDoc) { doc.Preview.Wrap = wrap })
 }

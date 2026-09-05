@@ -1,7 +1,10 @@
 package main
 
 import (
+	"strings"
+
 	"errors"
+	"github.com/charmbracelet/x/ansi"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -612,4 +615,69 @@ func TestPreviewClientAdapterRemovePreviewStateToleratesMissingState(t *testing.
 	if err := adapter.RemovePreviewState("wY:p9Z"); err != nil {
 		t.Fatalf("RemovePreviewState() error = %v, want nil for a pane without state", err)
 	}
+}
+
+func TestRunHelpPassesConfiguredActionsToThePopup(t *testing.T) {
+	t.Setenv(herdr.EntrypointIDEnv, herdr.HelpEntrypointID)
+	t.Setenv(herdr.HelpContextEnv, "tree")
+
+	configDir := t.TempDir()
+	prefsPath := filepath.Join(configDir, "preferences.json")
+	content := `{"actions": {"file": "zed <filepath>", "folder": "open <dirpath>"}}`
+	if err := os.WriteFile(prefsPath, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", prefsPath, err)
+	}
+	t.Setenv(herdr.PluginConfigDirEnv, configDir)
+
+	var started tea.Model
+	originalRunProgram := runProgram
+	runProgram = func(model tea.Model) error {
+		started = model
+		return nil
+	}
+	t.Cleanup(func() { runProgram = originalRunProgram })
+
+	if err := runHelp(); err != nil {
+		t.Fatalf("runHelp() error = %v, want the popup to start", err)
+	}
+	popup, ok := started.(*app.HelpModel)
+	if !ok {
+		t.Fatalf("runHelp() started model of type %T, want *app.HelpModel", started)
+	}
+	popup.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	content = ansiStrip(popup.View().Content)
+	if !strings.Contains(content, "Ctrl+Enter") || !strings.Contains(content, "run file default action") || !strings.Contains(content, "run folder default action") {
+		t.Fatalf("help popup view = %q, want both configured action rows", content)
+	}
+}
+
+func TestRunHelpOmitsActionRowsWhenPreferencesAreUnset(t *testing.T) {
+	t.Setenv(herdr.EntrypointIDEnv, herdr.HelpEntrypointID)
+	t.Setenv(herdr.HelpContextEnv, "tree")
+	// A detached run (no config dir) resolves empty actions.
+	t.Setenv(herdr.PluginConfigDirEnv, "")
+
+	var started tea.Model
+	originalRunProgram := runProgram
+	runProgram = func(model tea.Model) error {
+		started = model
+		return nil
+	}
+	t.Cleanup(func() { runProgram = originalRunProgram })
+
+	if err := runHelp(); err != nil {
+		t.Fatalf("runHelp() error = %v, want the popup to start", err)
+	}
+	popup, ok := started.(*app.HelpModel)
+	if !ok {
+		t.Fatalf("runHelp() started model of type %T, want *app.HelpModel", started)
+	}
+	popup.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	if content := ansiStrip(popup.View().Content); strings.Contains(content, "Ctrl+Enter") {
+		t.Fatalf("help popup view = %q, leaks an action row without configured actions", content)
+	}
+}
+
+func ansiStrip(value string) string {
+	return ansi.Strip(value)
 }
