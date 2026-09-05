@@ -215,6 +215,56 @@ func TestPreviewClientAdapterClosePanePropagatesFailure(t *testing.T) {
 	}
 }
 
+func TestLoadPreferencesReadsPreferencesFileFromStateDir(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stateDir, "preferences.json"), []byte(`{
+		"appearance": {"mode": "light"},
+		"icons": {"base_set": "material"},
+		"preview": {"wrap": true}
+	}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv(herdr.PluginStateDirEnv, stateDir)
+
+	prefs, warning := loadPreferences()
+	if prefs.AppearanceMode != "light" || prefs.IconBaseSet != "material" || !prefs.PreviewWrap {
+		t.Fatalf("loadPreferences() = %#v, want resolved light/material/wrap values", prefs)
+	}
+	if warning != "" {
+		t.Fatalf("loadPreferences() warning = %q, want none for a valid file", warning)
+	}
+}
+
+func TestLoadPreferencesFallsBackToDefaultsWithWarningOnRejectedFile(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stateDir, "preferences.json"), []byte(`{"preview": {`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv(herdr.PluginStateDirEnv, stateDir)
+
+	prefs, warning := loadPreferences()
+	want := herdr.Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}
+	if prefs != want {
+		t.Fatalf("loadPreferences() = %#v, want defaults %#v on rejection", prefs, want)
+	}
+	if warning == "" {
+		t.Fatalf("loadPreferences() warning = %q, want the rejection warning for the toast", warning)
+	}
+}
+
+func TestLoadPreferencesIsDetachedWithoutStateDir(t *testing.T) {
+	t.Setenv(herdr.PluginStateDirEnv, "")
+
+	prefs, warning := loadPreferences()
+	want := herdr.Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}
+	if prefs != want {
+		t.Fatalf("loadPreferences() = %#v, want defaults %#v for a detached run", prefs, want)
+	}
+	if warning != "" {
+		t.Fatalf("loadPreferences() warning = %q, want none for a missing state dir", warning)
+	}
+}
+
 func TestRunTreatsStartupEventBeforeEntrypointChecks(t *testing.T) {
 	// The startup event must win over every entrypoint: even with a preview
 	// entrypoint and preview file set, run() replaces the TUI with the

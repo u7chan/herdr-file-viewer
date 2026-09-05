@@ -183,6 +183,10 @@ type PreviewModel struct {
 
 	// The zero value keeps the existing dark palette until detection succeeds.
 	lightBackground bool
+	// appearanceFixed disables OSC 11 adaptation when preferences fix the
+	// palette, so light/dark render deterministically even in ANSI-256-only
+	// terminals.
+	appearanceFixed bool
 
 	dragMode    previewDragMode
 	dragVOffset int
@@ -192,8 +196,39 @@ type PreviewModel struct {
 	toast    string
 	toastSeq int
 
+	// preferencesWarning is the startup toast for a rejected
+	// preferences.json; empty means the document loaded cleanly or was
+	// absent (a normal first run).
+	preferencesWarning string
+	// saveWrap and saveShowWhitespace persist one toggled preview
+	// preference; nil keeps the toggle in-memory only (detached runs).
+	saveWrap           func(bool) error
+	saveShowWhitespace func(bool) error
+
 	helpConfig  HelpConfig
 	helpPending bool
+}
+
+// PreviewModelConfig wires the optional composition-root settings for the
+// preview model: the help popup capability, the resolved startup
+// preferences, and the preference persistence behind the w and s toggles.
+// A zero config keeps every capability at its built-in default.
+type PreviewModelConfig struct {
+	Help HelpConfig
+	// Preferences carries the resolved appearance preference from
+	// preferences.json. The zero value keeps the adaptive default.
+	Preferences Preferences
+	// Wrap and ShowWhitespace are the resolved initial toggle values
+	// (default off).
+	Wrap           bool
+	ShowWhitespace bool
+	// SaveWrap and SaveShowWhitespace persist one toggled value; nil keeps
+	// the toggle in-memory only, which is the detached-run behavior.
+	SaveWrap           func(bool) error
+	SaveShowWhitespace func(bool) error
+	// PreferencesWarning is shown as a startup toast when
+	// preferences.json was rejected; empty means no toast.
+	PreferencesWarning string
 }
 
 // NewPreviewModel constructs the preview without reading the file. The
@@ -201,24 +236,38 @@ type PreviewModel struct {
 // missing or empty file path puts the model into a warning state that waits
 // for q.
 func NewPreviewModel(file string, client PreviewClient, paneID string, readers ...filesystem.FileReader) *PreviewModel {
-	return NewPreviewModelWithConfig(file, client, paneID, HelpConfig{}, readers...)
+	return NewPreviewModelConfigured(file, client, paneID, PreviewModelConfig{}, readers...)
 }
 
 // NewPreviewModelWithConfig additionally wires the help popup capability
 // behind the h key.
 func NewPreviewModelWithConfig(file string, client PreviewClient, paneID string, help HelpConfig, readers ...filesystem.FileReader) *PreviewModel {
+	return NewPreviewModelConfigured(file, client, paneID, PreviewModelConfig{Help: help}, readers...)
+}
+
+// NewPreviewModelConfigured wires the help popup capability, the resolved
+// startup preferences (initial wrap/whitespace toggles and the fixed or
+// adaptive palette), and the preference persistence behind the w and s
+// toggles.
+func NewPreviewModelConfigured(file string, client PreviewClient, paneID string, config PreviewModelConfig, readers ...filesystem.FileReader) *PreviewModel {
 	reader := filesystem.FileReader(filesystem.NewLocal())
 	if len(readers) > 0 && readers[0] != nil {
 		reader = readers[0]
 	}
 
 	m := &PreviewModel{
-		file:       file,
-		paneID:     paneID,
-		client:     client,
-		reader:     reader,
-		helpConfig: help,
+		file:               file,
+		paneID:             paneID,
+		client:             client,
+		reader:             reader,
+		helpConfig:         config.Help,
+		wrap:               config.Wrap,
+		showWhitespace:     config.ShowWhitespace,
+		preferencesWarning: sanitizeDisplay(config.PreferencesWarning),
+		saveWrap:           config.SaveWrap,
+		saveShowWhitespace: config.SaveShowWhitespace,
 	}
+	m.lightBackground, m.appearanceFixed = resolveAppearance(config.Preferences.AppearanceMode)
 	if file == "" {
 		m.warning = "preview file is unset (HERDR_PREVIEW_FILE)"
 		m.status = m.readyStatus()
@@ -229,12 +278,22 @@ func NewPreviewModelWithConfig(file string, client PreviewClient, paneID string,
 	return m
 }
 
-// Init starts the metadata tag and the file load as commands. Reads and
-// classification happen outside View and Update.
+// Init starts the metadata tag and the file load as commands, and requests
+// the terminal background unless preferences fix the palette. A rejected
+// preferences.json surfaces as a startup toast. Reads and classification
+// only ever happen outside View and Update.
 func (m *PreviewModel) Init() tea.Cmd {
-	commands := []tea.Cmd{tea.RequestBackgroundColor}
+	commands := make([]tea.Cmd, 0, 3)
 	if m == nil {
 		return tea.Batch(commands...)
+	}
+	if !m.appearanceFixed {
+		commands = append(commands, tea.RequestBackgroundColor)
+	}
+	if m.preferencesWarning != "" {
+		commands = append(commands, func() tea.Msg {
+			return preferencesWarningMsg{text: m.preferencesWarning}
+		})
 	}
 	if m.client != nil && m.paneID != "" && m.file != "" {
 		commands = append(commands, m.tagCommand())
@@ -301,9 +360,13 @@ func (m *PreviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.BackgroundColorMsg:
-		m.lightBackground = !msg.IsDark()
+		if !m.appearanceFixed {
+			m.lightBackground = !msg.IsDark()
+		}
 	case previewLoadMsg:
 		return m, m.applyPreviewLoad(msg)
+	case preferencesWarningMsg:
+		return m, m.showToast(msg.text)
 	case helpResultMsg:
 		m.helpPending = false
 		if msg.err != "" {
@@ -353,7 +416,7 @@ func (m *PreviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "w":
 			m.toggleWrap()
 		case "s":
-			m.showWhitespace = !m.showWhitespace
+			m.toggleShowWhitespace()
 		case "space", "\u3000":
 			return m, m.copySelection()
 		}
@@ -531,6 +594,27 @@ func (m *PreviewModel) toggleWrap() {
 		m.xoffset = 0
 	}
 	m.rebuildDisplayLines()
+	m.persistPreviewPreference(m.saveWrap, m.wrap)
+}
+
+func (m *PreviewModel) toggleShowWhitespace() {
+	m.showWhitespace = !m.showWhitespace
+	m.persistPreviewPreference(m.saveShowWhitespace, m.showWhitespace)
+}
+
+// persistPreviewPreference saves one toggled preview preference
+// best-effort. A failed save keeps the toggle applied and surfaces a footer
+// warning, mirroring the other best-effort persistence paths.
+func (m *PreviewModel) persistPreviewPreference(save func(bool) error, value bool) {
+	if save == nil {
+		return
+	}
+	if err := save(value); err != nil {
+		m.warning = addWarning(m.warning, "preferences: "+sanitizeDisplay(err.Error()))
+		if !m.loading {
+			m.status = m.readyStatus()
+		}
+	}
 }
 
 // previewToastTimeoutMsg hides the preview footer toast after its display

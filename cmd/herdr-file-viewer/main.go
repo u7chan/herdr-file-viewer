@@ -38,6 +38,7 @@ func run() error {
 		return runHelp()
 	}
 
+	prefs, prefsWarning := loadPreferences()
 	root, err := herdr.ResolveRoot()
 	if err != nil {
 		return err
@@ -56,6 +57,11 @@ func run() error {
 		// Root moves keep the process working directory in sync with the
 		// display root so Herdr attributes the viewed directory to this pane.
 		Chdir: herdr.ChdirRoot,
+		Preferences: app.Preferences{
+			AppearanceMode: prefs.AppearanceMode,
+			IconBaseSet:    prefs.IconBaseSet,
+		},
+		PreferencesWarning: prefsWarning,
 	})
 	return runProgram(model)
 }
@@ -89,6 +95,19 @@ var runStartupRestore = func() error {
 	return nil
 }
 
+// loadPreferences resolves preferences.json once per process from
+// HERDR_PLUGIN_STATE_DIR. A missing file is a normal first run (defaults, no
+// warning); a rejected file falls back to the defaults and returns the
+// rejection as a warning the model shows as a startup toast. Detached runs
+// (direct terminal, tests) read nothing and never write.
+func loadPreferences() (herdr.Preferences, string) {
+	prefs, err := herdr.NewPreferencesStore(os.Getenv(herdr.PluginStateDirEnv)).Load()
+	if err != nil {
+		return prefs, err.Error()
+	}
+	return prefs, ""
+}
+
 func runPreview() error {
 	file := herdr.PreviewFile()
 	if file != "" {
@@ -103,7 +122,19 @@ func runPreview() error {
 	if err := herdr.NewPreviewStateStore(os.Getenv(herdr.PluginStateDirEnv), os.Getenv(herdr.SocketPathEnv)).Save(herdr.PaneID(), file); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}
-	model := app.NewPreviewModelWithConfig(file, newPreviewClient(), herdr.PaneID(), newHelpConfig())
+	prefs, prefsWarning := loadPreferences()
+	prefsStore := herdr.NewPreferencesStore(os.Getenv(herdr.PluginStateDirEnv))
+	model := app.NewPreviewModelConfigured(file, newPreviewClient(), herdr.PaneID(), app.PreviewModelConfig{
+		Help: newHelpConfig(),
+		Preferences: app.Preferences{
+			AppearanceMode: prefs.AppearanceMode,
+		},
+		Wrap:               prefs.PreviewWrap,
+		ShowWhitespace:     prefs.PreviewShowWhitespace,
+		SaveWrap:           prefsStore.SavePreviewWrap,
+		SaveShowWhitespace: prefsStore.SavePreviewShowWhitespace,
+		PreferencesWarning: prefsWarning,
+	})
 	return runProgram(model)
 }
 
