@@ -215,11 +215,12 @@ redirected, so the viewer never blocks and its screen stays clean; stdout
 and stderr of the launched command are not shown.
 
 `Ctrl+Enter` must arrive as a modified key (CSI u, `ESC[27;5;13~`) to be
-distinguished from `Enter`, and some terminals do not transmit it at all
-(Windows Terminal sends nothing for `Ctrl+Enter` by default). If the
-action never fires, bind the key in the terminal to send that sequence
-(Windows Terminal: a `sendInput` action with input `\u001b[27;5;13~`
-assigned to `ctrl+enter` in `keybindings`).
+distinguished from `Enter`. Some terminals send a different byte instead:
+Windows Terminal (default) transmits `Ctrl+Enter` as `0A` (LF, the same
+byte as `Ctrl+J`), which the viewer reads as `ctrl+j`, so the action
+never fires. If the action does not fire, bind the key in the terminal
+to send the CSI u sequence (Windows Terminal: a `sendInput` action with
+input `\u001b[27;5;13~` assigned to `ctrl+enter` in `keybindings`).
 
 A `preferences.json` whose JSON, known types, or known enum values are
 invalid is rejected whole: the viewer falls back to the built-in defaults
