@@ -259,12 +259,73 @@ func TestHelpModelRendersContextSpecificOperations(t *testing.T) {
 	}
 }
 
+func TestHelpModelShowsActionRowsOnlyWhenConfigured(t *testing.T) {
+	view := func(actions ...DefaultActions) string {
+		model := NewHelpModel(helpTreeContext, actions...)
+		model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+		return ansi.Strip(model.View().Content)
+	}
+
+	if content := view(); strings.Contains(content, "Ctrl+Enter") {
+		t.Fatalf("unconfigured tree help view = %q, leaks a Ctrl+Enter row", content)
+	}
+
+	fileOnly := view(DefaultActions{File: "zed <filepath>"})
+	if !strings.Contains(fileOnly, "Ctrl+Enter") || !strings.Contains(fileOnly, "run file default action") {
+		t.Fatalf("file-only tree help view = %q, want the file action row", fileOnly)
+	}
+	if strings.Contains(fileOnly, "run folder default action") {
+		t.Fatalf("file-only tree help view = %q, leaks a folder action row", fileOnly)
+	}
+
+	folderOnly := view(DefaultActions{Folder: "open <dirpath>"})
+	if !strings.Contains(folderOnly, "Ctrl+Enter") || !strings.Contains(folderOnly, "run folder default action") {
+		t.Fatalf("folder-only tree help view = %q, want the folder action row", folderOnly)
+	}
+	if strings.Contains(folderOnly, "run file default action") {
+		t.Fatalf("folder-only tree help view = %q, leaks a file action row", folderOnly)
+	}
+
+	both := view(DefaultActions{File: "zed <filepath>", Folder: "open <dirpath>"})
+	if !strings.Contains(both, "run file default action") || !strings.Contains(both, "run folder default action") {
+		t.Fatalf("configured tree help view = %q, want both action rows", both)
+	}
+}
+
+func TestHelpModelActionRowsFollowThePreviewRow(t *testing.T) {
+	model := NewHelpModel(helpTreeContext, DefaultActions{File: "zed <filepath>", Folder: "open <dirpath>"})
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
+	for index, line := range lines {
+		if !strings.Contains(line, "preview file") {
+			continue
+		}
+		if index+2 >= len(lines) || !strings.Contains(lines[index+1], "run file default action") || !strings.Contains(lines[index+2], "run folder default action") {
+			t.Fatalf("action rows = %q / %q, want them directly after the preview row", lines[index+1], lines[index+2])
+		}
+		return
+	}
+	t.Fatalf("tree help view = %q, want a preview row", lines)
+}
+
+func TestHelpModelPreviewContextIgnoresActionRows(t *testing.T) {
+	model := NewHelpModel(helpPreviewContext, DefaultActions{File: "zed <filepath>", Folder: "open <dirpath>"})
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	content := ansi.Strip(model.View().Content)
+	if strings.Contains(content, "Ctrl+Enter") || strings.Contains(content, "default action") {
+		t.Fatalf("preview help view = %q, leaks default-action rows", content)
+	}
+}
+
 func TestHelpModelUnknownContextFallsBackToTreeReference(t *testing.T) {
-	model := NewHelpModel("bogus")
+	model := NewHelpModel("bogus", DefaultActions{File: "zed <filepath>"})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	view := ansi.Strip(model.View().Content)
 	if !strings.Contains(view, "root move") {
 		t.Fatalf("fallback help view = %q, want the tree reference", view)
+	}
+	if !strings.Contains(view, "run file default action") {
+		t.Fatalf("fallback help view = %q, want the configured file action row", view)
 	}
 }
 

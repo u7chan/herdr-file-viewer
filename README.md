@@ -9,8 +9,9 @@ shows a lazy, keyboard-driven filesystem tree. Directory reads run
 asynchronously so navigation, scrolling, and resize remain responsive.
 The displayed root can be re-opened onto the selected directory (`C`) or
 onto the parent of the current directory (`Backspace`), and the process
-working directory follows the display root. A Herdr popup shows the full
-key reference from the tree or the preview with `h`.
+working directory follows the display root. `Ctrl+Enter` runs a configured
+per-type default action on the selected file or folder. A Herdr popup
+shows the full key reference from the tree or the preview with `h`.
 
 ## Scope
 
@@ -23,14 +24,19 @@ status snapshot, OSC 52 path copying, and a Help popup. `Enter` opens a text
 preview pane with line numbers, syntax highlighting for recognized source,
 configuration, and markup filenames (files without a matching lexer remain
 plain text), wrap and space-visualization toggles, mouse text selection with
-OSC 52 copy, horizontal scrolling, and manual reload. Eligible Files and
+OSC 52 copy, horizontal scrolling, and manual reload. On a file or folder,
+`Ctrl+Enter` runs the corresponding configured default action
+(`actions.file` / `actions.folder` from `preferences.json`) in the user's
+interactive shell, detached from the TUI. Eligible Files and
 Preview panes are restored in place after a Herdr session restore; a
 candidate whose foreground never becomes an idle shell and a preview
 without usable saved state are left untouched.
 
-It stays read-only: it does not provide markdown rendering, file editing,
-external commands acting on files, install/distribution automation, or
-release tags.
+It stays read-only in the viewer itself: it does not provide markdown
+rendering, file editing, arbitrary inline command execution, install/
+distribution automation, or release tags. The only way to run external
+commands is the configured per-type default action (`Ctrl+Enter`), whose
+command strings are user-edited and evaluated by the shell by design.
 
 The supported validation target is Linux under WSL2 with Herdr 0.8.2 or newer.
 Native macOS and Windows validation is out of scope. Native Windows host
@@ -161,17 +167,19 @@ linked plugin: `~/.config/herdr/plugins/config/u7chan.file-viewer/`):
 {
   "appearance": { "mode": "auto" },
   "icons": { "base_set": "font-awesome-solid" },
-  "preview": { "wrap": false, "show_whitespace": false }
+  "preview": { "wrap": false, "show_whitespace": false },
+  "actions": { "file": "zed <filepath>", "folder": "open <dirpath>" }
 }
 ```
 
 Every key is optional; missing keys and empty strings resolve to the
-built-in defaults (`auto`, `font-awesome-solid`, and both preview toggles
-off). The file is read once at process start, so hand edits apply on the
-next launch, and unknown keys or sections are ignored when reading. On the
-first run inside a Herdr pane the file is created with the default document
-so the hand-editing entry point exists; a `w`/`s` save rewrites the document
-from the known schema only, so hand-written unknown keys or sections are
+built-in defaults (`auto`, `font-awesome-solid`, both preview toggles off,
+and no default actions). The file is read once at process start, so hand
+edits apply on the next launch, and unknown keys or sections are ignored
+when reading. On the first run inside a Herdr pane the file is created with
+the default document (including an empty `actions` section) so the
+hand-editing entry point exists; a `w`/`s` save rewrites the document from
+the known schema only, so hand-written unknown keys or sections are
 dropped at the first toggle save. Deleting the file resets every preference
 (the next launch recreates it with the defaults).
 
@@ -181,6 +189,8 @@ dropped at the first toggle save. Deleting the file resets every preference
 | `icons.base_set` | Folder / unknown-file glyph set | `font-awesome-solid`, `font-awesome-outline`, `material`, `codicon` | `font-awesome-solid` |
 | `preview.wrap` | Initial `w` toggle state in new preview panes | `true`, `false` | `false` |
 | `preview.show_whitespace` | Initial `s` toggle state in new preview panes | `true`, `false` | `false` |
+| `actions.file` | Default action command for files (`Ctrl+Enter`); `<filepath>` is replaced by the selected file path | any shell command string | unset |
+| `actions.folder` | Default action command for folders (`Ctrl+Enter`); `<dirpath>` is replaced by the selected folder path | any shell command string | unset |
 
 - `appearance.mode`: `auto` keeps the OSC 11 background detection with the
 dark fallback; `light` and `dark` fix the palette regardless of the terminal
@@ -191,6 +201,18 @@ colors) is unchanged.
 - `preview.wrap` / `preview.show_whitespace`: toggling in a preview pane
 saves the changed item immediately, so a later preview pane opens with the
 last used value; already-open previews are not live-synced.
+- `actions.file` / `actions.folder`: a missing key, an empty section, or
+an empty string all mean the action is unset — never an error. An unset
+action makes `Ctrl+Enter` a silent no-op and hides its Help row. The
+path placeholders are fixed per key and shell-quoted before substitution,
+so paths containing spaces or quotes survive evaluation intact. The
+configured command string is evaluated by your interactive shell
+environment (`bash -lic`), so aliases and functions from `~/.bashrc` (and
+its sources, e.g. `~/.config/workstation/shell/init.bash`) resolve; this
+is intentional, and a hand-edited string is executed exactly as the shell
+would run it. The command is launched detached with its streams
+redirected, so the viewer never blocks and its screen stays clean; stdout
+and stderr of the launched command are not shown.
 
 A `preferences.json` whose JSON, known types, or known enum values are
 invalid is rejected whole: the viewer falls back to the built-in defaults
@@ -241,6 +263,18 @@ applied and shows a footer warning.
   and pressing it on another file closes and reopens the pane. Without a Herdr
   context (`HERDR_PANE_ID` missing) `Enter` stays a no-op; CLI failures surface
   as a footer warning and the tree keeps working.
+- `Ctrl+Enter`: run the per-type default action for the selected row: the
+  `actions.file` command for a file and the `actions.folder` command for a
+  directory (including the sticky root row). `Enter` stays the preview key;
+  the two keys never overlap. With the action unset (key absent or empty
+  string) `Ctrl+Enter` does nothing silently — no toast, no warning — and
+  the Help popup omits its row. The `<filepath>` / `<dirpath>` placeholder
+  is replaced by the selected path with shell quoting applied automatically,
+  and the command runs detached in the user's interactive shell environment
+  (`bash -lic`, so aliases and functions resolve), so the TUI is never
+  blocked and survives the launched program. A launch failure (the shell
+  cannot be started) surfaces as a footer warning; the command's own output
+  is discarded.
 - Right click and other unassigned input: no effect.
 - `q` / `Ctrl+C`: quit. Bubble Tea restores the alternate screen, mouse mode,
   cursor, and input state when the pane exits.
@@ -271,17 +305,21 @@ visible.
 `h` in the tree or the preview opens the plugin's `help` entrypoint as a
 focused Herdr popup pane. One shared `help` entrypoint renders the caller's
 reference: the popup opened from the tree lists the tree operations
-(movement, page moves, expand/collapse, root move, preview, find, reload,
-copy, mouse and scrollbar, quit); the popup opened from the preview lists
-the preview operations (vertical and horizontal scrolling, wrap, spaces,
-reload, selection copy, mouse and scrollbars, close). The caller context
-travels in the `HERDR_HELP_CONTEXT` environment value. Inside the popup, `h`,
-`Esc`, and `q` close only the popup, so the key reference never leaks
-keystrokes back to the pane underneath. While a launch is in flight,
-repeated `h` presses are ignored, so the popup is never opened twice.
-Without a Herdr context, or when the popup launch fails, the caller keeps
-its state, a warning is shown in its footer, and there is no in-pane
-fallback help.
+(movement, page moves, expand/collapse, root move, preview, default
+actions, find, reload, copy, mouse and scrollbar, quit); the popup opened
+from the preview lists the preview operations (vertical and horizontal
+scrolling, wrap, spaces, reload, selection copy, mouse and scrollbars,
+close). The tree reference gains one `Ctrl+Enter` row per configured
+default action, positioned after the preview row; with the action unset
+its row is omitted entirely (both the none-for-file and none-for-folder
+cases). The caller context travels in the `HERDR_HELP_CONTEXT` environment
+value, and the popup reads the same `preferences.json` for the action
+rows. Inside the popup, `h`, `Esc`, and `q` close only the popup, so the
+key reference never leaks keystrokes back to the pane underneath. While a
+launch is in flight, repeated `h` presses are ignored, so the popup is
+never opened twice. Without a Herdr context, or when the popup launch
+fails, the caller keeps its state, a warning is shown in its footer, and
+there is no in-pane fallback help.
 
 ### Preview pane
 
