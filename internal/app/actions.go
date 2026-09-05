@@ -38,9 +38,9 @@ func defaultActionCommand(template, token, path string) string {
 	return strings.ReplaceAll(template, token, shellQuote(path))
 }
 
-// shellQuote wraps value in single quotes for a POSIX shell, escaping
-// embedded single quotes as '\'' so the quoted text always evaluates back
-// to the original bytes.
+// shellQuote wraps value in single quotes for a POSIX shell; an embedded
+// single quote is escaped, so the quoted text always evaluates back to the
+// original bytes.
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
