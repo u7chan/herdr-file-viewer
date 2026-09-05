@@ -286,8 +286,8 @@ func TestLoadPreferencesFallsBackToDefaultsWithWarningOnRejectedFile(t *testing.
 	}
 }
 
-func TestLoadPreferencesIsDetachedWithoutStateDir(t *testing.T) {
-	t.Setenv(herdr.PluginStateDirEnv, "")
+func TestLoadPreferencesIsDetachedWithoutConfigDir(t *testing.T) {
+	t.Setenv(herdr.PluginConfigDirEnv, "")
 
 	prefs, warning := loadPreferences()
 	want := herdr.Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}
@@ -295,7 +295,7 @@ func TestLoadPreferencesIsDetachedWithoutStateDir(t *testing.T) {
 		t.Fatalf("loadPreferences() = %#v, want defaults %#v for a detached run", prefs, want)
 	}
 	if warning != "" {
-		t.Fatalf("loadPreferences() warning = %q, want none for a missing state dir", warning)
+		t.Fatalf("loadPreferences() warning = %q, want none for a missing config dir", warning)
 	}
 }
 
@@ -352,6 +352,7 @@ func TestRunPreviewChangesWorkingDirectoryToPreviewFileParent(t *testing.T) {
 	})
 
 	t.Setenv(herdr.PreviewFileEnv, filepath.Join(parent, "preview.md"))
+	t.Setenv(herdr.PluginConfigDirEnv, "")
 	t.Setenv(herdr.PluginStateDirEnv, "")
 	t.Setenv(herdr.SocketPathEnv, "")
 
@@ -394,6 +395,7 @@ func TestRunPreviewKeepsWorkingDirectoryWhenParentIsMissing(t *testing.T) {
 
 	file := filepath.Join(t.TempDir(), "missing", "preview.md")
 	t.Setenv(herdr.PreviewFileEnv, file)
+	t.Setenv(herdr.PluginConfigDirEnv, "")
 	t.Setenv(herdr.PluginStateDirEnv, "")
 	t.Setenv(herdr.SocketPathEnv, "")
 
@@ -428,6 +430,7 @@ func TestRunPreviewKeepsWorkingDirectoryWhenParentCannotBeEntered(t *testing.T) 
 
 	file := filepath.Join(t.TempDir(), "preview.md")
 	t.Setenv(herdr.PreviewFileEnv, file)
+	t.Setenv(herdr.PluginConfigDirEnv, "")
 	t.Setenv(herdr.PluginStateDirEnv, "")
 	t.Setenv(herdr.SocketPathEnv, "")
 
@@ -494,6 +497,7 @@ func TestRunPreviewDoesNotChangeWorkingDirectoryWhenFileIsUnsetOrEmpty(t *testin
 				t.Setenv(herdr.PreviewFileEnv, "")
 			}
 			t.Setenv(herdr.PluginStateDirEnv, "")
+			t.Setenv(herdr.PluginConfigDirEnv, "")
 			t.Setenv(herdr.SocketPathEnv, "")
 
 			called := false
@@ -550,6 +554,7 @@ func TestRunRestoredPreviewEntrypointChangesWorkingDirectoryToPreviewParent(t *t
 	t.Setenv(herdr.EntrypointIDEnv, herdr.PreviewEntrypointID)
 	t.Setenv(herdr.PreviewFileEnv, filepath.Join(parent, "restored.md"))
 	t.Setenv(herdr.PluginStateDirEnv, "")
+	t.Setenv(herdr.PluginConfigDirEnv, "")
 	t.Setenv(herdr.SocketPathEnv, "")
 
 	started := false
