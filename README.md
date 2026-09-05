@@ -175,16 +175,22 @@ from the known schema only, so hand-written unknown keys or sections are
 dropped at the first toggle save. Deleting the file resets every preference
 (the next launch recreates it with the defaults).
 
+| Key | Description | Supported values | Default |
+| --- | --- | --- | --- |
+| `appearance.mode` | Appearance palette mode | `auto`, `light`, `dark` | `auto` |
+| `icons.base_set` | Folder / unknown-file glyph set | `font-awesome-solid`, `font-awesome-outline`, `material`, `codicon` | `font-awesome-solid` |
+| `preview.wrap` | Initial `w` toggle state in new preview panes | `true`, `false` | `false` |
+| `preview.show_whitespace` | Initial `s` toggle state in new preview panes | `true`, `false` | `false` |
+
 - `appearance.mode`: `auto` keeps the OSC 11 background detection with the
 dark fallback; `light` and `dark` fix the palette regardless of the terminal
 response.
 - `icons.base_set`: switches only the closed folder, open folder, and
 unknown-file glyphs; everything else (extension icons, symlink, HOME, Git,
 colors) is unchanged.
-- `preview.wrap` / `preview.show_whitespace`: the initial state of the `w`
-and `s` toggles in new preview panes. Toggling in a preview pane saves the
-changed item immediately, so a later preview pane opens with the last used
-value; already-open previews are not live-synced.
+- `preview.wrap` / `preview.show_whitespace`: toggling in a preview pane
+saves the changed item immediately, so a later preview pane opens with the
+last used value; already-open previews are not live-synced.
 
 A `preferences.json` whose JSON, known types, or known enum values are
 invalid is rejected whole: the viewer falls back to the built-in defaults
