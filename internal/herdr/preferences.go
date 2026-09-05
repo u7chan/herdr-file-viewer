@@ -15,9 +15,10 @@ import (
 // state under preview/<namespace>/<pane>.json.
 const preferencesFileName = "preferences.json"
 
-// Preferences is the resolved preferences document. Every field has a
-// built-in default (all zero values), so a missing file or a rejected
-// document resolves to the same defaults and no absent-tracking is needed.
+// Preferences is the resolved preferences document. Absent fields decode
+// to zero values before resolution and then map onto the built-in
+// defaults, so a missing file or a rejected document resolves to the same
+// defaults and no absent-tracking is needed.
 type Preferences struct {
 	AppearanceMode        string // "auto", "light", or "dark"; defaults to "auto"
 	IconBaseSet           string // one of the four basic icon set names; defaults to "font-awesome-solid"

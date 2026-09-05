@@ -53,6 +53,28 @@ func TestDefaultTreeIconSetIsFontAwesomeSolid(t *testing.T) {
 	}
 }
 
+func TestIconBaseSetForNameMapsEveryValidName(t *testing.T) {
+	// Pins the four preferences icons.base_set names to their sets so a
+	// dropped case cannot silently fall back to the default set while the
+	// herdr-side validation still accepts the name.
+	tests := []struct {
+		name string
+		want treeIconSet
+	}{
+		{name: "font-awesome-solid", want: iconSetFontAwesomeSolid},
+		{name: "font-awesome-outline", want: iconSetFontAwesomeOutline},
+		{name: "material", want: iconSetMaterial},
+		{name: "codicon", want: iconSetCodicon},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := iconBaseSetForName(test.name); got != test.want {
+				t.Fatalf("iconBaseSetForName(%q) = %v, want %v", test.name, got, test.want)
+			}
+		})
+	}
+}
+
 func TestIconsForUnknownSetFallsBackToFontAwesomeSolid(t *testing.T) {
 	if got, want := iconsFor(treeIconSet(255)), iconsFor(iconSetFontAwesomeSolid); got != want {
 		t.Fatalf("unknown icon set = %#v, want %#v", got, want)
