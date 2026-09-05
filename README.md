@@ -154,7 +154,8 @@ herdr plugin link "$PWD"
 ## Preferences
 
 Hand-edited settings and the mutable preview toggles are stored in one JSON
-document, `preferences.json`, under `HERDR_PLUGIN_STATE_DIR`:
+document, `preferences.json`, under `HERDR_PLUGIN_CONFIG_DIR` (for the
+linked plugin: `~/.config/herdr/plugins/config/u7chan.file-viewer/`):
 
 ```json
 {
@@ -167,11 +168,12 @@ document, `preferences.json`, under `HERDR_PLUGIN_STATE_DIR`:
 Every key is optional; missing keys and empty strings resolve to the
 built-in defaults (`auto`, `font-awesome-solid`, and both preview toggles
 off). The file is read once at process start, so hand edits apply on the
-next launch, and unknown keys or sections are ignored when reading. A
-`w`/`s` save rewrites the document from the known schema only, so
-hand-written unknown keys or sections are dropped at the first toggle
-save. Without the file the viewer behaves exactly as before; deleting the
-file resets every preference.
+next launch, and unknown keys or sections are ignored when reading. On the
+first run inside a Herdr pane the file is created with the default document
+so the hand-editing entry point exists; a `w`/`s` save rewrites the document
+from the known schema only, so hand-written unknown keys or sections are
+dropped at the first toggle save. Deleting the file resets every preference
+(the next launch recreates it with the defaults).
 
 - `appearance.mode`: `auto` keeps the OSC 11 background detection with the
 dark fallback; `light` and `dark` fix the palette regardless of the terminal

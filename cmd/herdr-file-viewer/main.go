@@ -96,12 +96,13 @@ var runStartupRestore = func() error {
 }
 
 // loadPreferences resolves preferences.json once per process from
-// HERDR_PLUGIN_STATE_DIR. A missing file is a normal first run (defaults, no
-// warning); a rejected file falls back to the defaults and returns the
-// rejection as a warning the model shows as a startup toast. Detached runs
-// (direct terminal, tests) read nothing and never write.
+// HERDR_PLUGIN_CONFIG_DIR. A missing file is a first run: the defaults are
+// written so the hand-editing entry point exists, and no warning is shown. A
+// rejected file falls back to the defaults and returns the rejection as a
+// warning the model shows as a startup toast. Detached runs (direct
+// terminal, tests) read nothing and never write.
 func loadPreferences() (herdr.Preferences, string) {
-	prefs, err := herdr.NewPreferencesStore(os.Getenv(herdr.PluginStateDirEnv)).Load()
+	prefs, err := herdr.NewPreferencesStore(os.Getenv(herdr.PluginConfigDirEnv)).Load()
 	if err != nil {
 		return prefs, err.Error()
 	}
@@ -123,7 +124,7 @@ func runPreview() error {
 		fmt.Fprintln(os.Stderr, err)
 	}
 	prefs, prefsWarning := loadPreferences()
-	prefsStore := herdr.NewPreferencesStore(os.Getenv(herdr.PluginStateDirEnv))
+	prefsStore := herdr.NewPreferencesStore(os.Getenv(herdr.PluginConfigDirEnv))
 	model := app.NewPreviewModelConfigured(file, newPreviewClient(), herdr.PaneID(), app.PreviewModelConfig{
 		Help: newHelpConfig(),
 		Preferences: app.Preferences{

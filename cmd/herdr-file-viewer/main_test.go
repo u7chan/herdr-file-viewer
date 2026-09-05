@@ -215,16 +215,16 @@ func TestPreviewClientAdapterClosePanePropagatesFailure(t *testing.T) {
 	}
 }
 
-func TestLoadPreferencesReadsPreferencesFileFromStateDir(t *testing.T) {
-	stateDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(stateDir, "preferences.json"), []byte(`{
+func TestLoadPreferencesReadsPreferencesFileFromConfigDir(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "preferences.json"), []byte(`{
 		"appearance": {"mode": "light"},
 		"icons": {"base_set": "material"},
 		"preview": {"wrap": true}
 	}`), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	t.Setenv(herdr.PluginStateDirEnv, stateDir)
+	t.Setenv(herdr.PluginConfigDirEnv, configDir)
 
 	prefs, warning := loadPreferences()
 	if prefs.AppearanceMode != "light" || prefs.IconBaseSet != "material" || !prefs.PreviewWrap {
@@ -235,12 +235,46 @@ func TestLoadPreferencesReadsPreferencesFileFromStateDir(t *testing.T) {
 	}
 }
 
-func TestLoadPreferencesFallsBackToDefaultsWithWarningOnRejectedFile(t *testing.T) {
-	stateDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(stateDir, "preferences.json"), []byte(`{"preview": {`), 0o600); err != nil {
+func TestLoadPreferencesCreatesDefaultFileOnFirstRun(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv(herdr.PluginConfigDirEnv, configDir)
+
+	prefs, warning := loadPreferences()
+	want := herdr.Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}
+	if prefs != want {
+		t.Fatalf("loadPreferences() = %#v, want defaults %#v on first run", prefs, want)
+	}
+	if warning != "" {
+		t.Fatalf("loadPreferences() warning = %q, want none when the default file is created", warning)
+	}
+	if _, err := os.Stat(filepath.Join(configDir, "preferences.json")); err != nil {
+		t.Fatalf("preferences.json not created on first run: %v", err)
+	}
+}
+
+func TestLoadPreferencesWarnsWhenDefaultFileCreationFails(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	t.Setenv(herdr.PluginStateDirEnv, stateDir)
+	t.Setenv(herdr.PluginConfigDirEnv, filepath.Join(blocker, "sub"))
+
+	prefs, warning := loadPreferences()
+	want := herdr.Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}
+	if prefs != want {
+		t.Fatalf("loadPreferences() = %#v, want defaults %#v when creation fails", prefs, want)
+	}
+	if warning == "" {
+		t.Fatalf("loadPreferences() warning = %q, want the creation-failure warning", warning)
+	}
+}
+
+func TestLoadPreferencesFallsBackToDefaultsWithWarningOnRejectedFile(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "preferences.json"), []byte(`{"preview": {`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv(herdr.PluginConfigDirEnv, configDir)
 
 	prefs, warning := loadPreferences()
 	want := herdr.Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}

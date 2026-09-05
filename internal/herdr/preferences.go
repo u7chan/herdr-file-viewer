@@ -11,8 +11,9 @@ import (
 
 // preferencesFileName is the single document holding hand-edited settings
 // and the mutable preview toggles the app rewrites. It lives in
-// HERDR_PLUGIN_STATE_DIR, a separate file from the per-pane preview restore
-// state under preview/<namespace>/<pane>.json.
+// HERDR_PLUGIN_CONFIG_DIR (the user-editable plugin config directory),
+// separate from the per-pane preview restore state under
+// preview/<namespace>/<pane>.json in HERDR_PLUGIN_STATE_DIR.
 const preferencesFileName = "preferences.json"
 
 // Preferences is the resolved preferences document. Absent fields decode
@@ -61,30 +62,31 @@ type previewDoc struct {
 }
 
 // PreferencesStore persists the single preferences document under
-// HERDR_PLUGIN_STATE_DIR. An empty state dir leaves the store detached:
+// HERDR_PLUGIN_CONFIG_DIR. An empty config dir leaves the store detached:
 // every operation becomes a no-op returning defaults, so runs outside a
 // Herdr context (direct terminal, tests) never touch the filesystem.
 type PreferencesStore struct {
 	path string
 }
 
-// NewPreferencesStore builds the store. An empty or blank state dir leaves
+// NewPreferencesStore builds the store. An empty or blank config dir leaves
 // the store detached.
-func NewPreferencesStore(stateDir string) *PreferencesStore {
-	if strings.TrimSpace(stateDir) == "" {
+func NewPreferencesStore(configDir string) *PreferencesStore {
+	if strings.TrimSpace(configDir) == "" {
 		return &PreferencesStore{}
 	}
-	return &PreferencesStore{path: filepath.Join(stateDir, preferencesFileName)}
+	return &PreferencesStore{path: filepath.Join(configDir, preferencesFileName)}
 }
 
 func (s *PreferencesStore) detached() bool {
 	return s.path == ""
 }
 
-// Load returns the resolved preferences. A missing file is a normal first
-// run and yields the defaults without an error. Any other read, parse, or
-// validation failure rejects the whole document and yields the defaults with
-// an error describing the rejection, so the caller can warn.
+// Load returns the resolved preferences. A missing file is a first run: the
+// default document is written so the hand-editing entry point exists, and
+// the defaults are returned without an error. A failed creation or any other
+// read, parse, or validation failure yields the defaults with an error
+// describing the rejection, so the caller can warn.
 func (s *PreferencesStore) Load() (Preferences, error) {
 	if s.detached() {
 		return preferencesDefaults(), nil
@@ -92,6 +94,9 @@ func (s *PreferencesStore) Load() (Preferences, error) {
 	content, err := os.ReadFile(s.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			if err := s.writeDoc(defaultPreferencesDoc()); err != nil {
+				return preferencesDefaults(), err
+			}
 			return preferencesDefaults(), nil
 		}
 		return preferencesDefaults(), fmt.Errorf("read %s: %w", preferencesFileName, err)
@@ -111,6 +116,16 @@ func preferencesDefaults() Preferences {
 	return Preferences{
 		AppearanceMode: defaultAppearanceMode,
 		IconBaseSet:    defaultIconBaseSet,
+	}
+}
+
+// defaultPreferencesDoc is the document written on first run. The preview
+// toggles are emitted as explicit false values so the created file shows
+// every key a user can edit.
+func defaultPreferencesDoc() preferencesDoc {
+	return preferencesDoc{
+		Appearance: appearanceDoc{Mode: defaultAppearanceMode},
+		Icons:      iconsDoc{BaseSet: defaultIconBaseSet},
 	}
 }
 
@@ -182,12 +197,19 @@ func (s *PreferencesStore) updatePreview(apply func(*preferencesDoc)) error {
 		_ = json.Unmarshal(content, &doc)
 	}
 	apply(&doc)
+	return s.writeDoc(doc)
+}
+
+// writeDoc marshals and writes the whole known document with a simple
+// os.WriteFile. The parent directory is created on demand because a fresh
+// Herdr install may not have materialized the plugin config dir yet.
+func (s *PreferencesStore) writeDoc(doc preferencesDoc) error {
 	content, err := json.Marshal(doc)
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", preferencesFileName, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return fmt.Errorf("create preferences state dir: %w", err)
+		return fmt.Errorf("create preferences config dir: %w", err)
 	}
 	if err := os.WriteFile(s.path, content, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", preferencesFileName, err)
