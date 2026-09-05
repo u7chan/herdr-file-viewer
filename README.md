@@ -214,6 +214,13 @@ would run it. The command is launched detached with its streams
 redirected, so the viewer never blocks and its screen stays clean; stdout
 and stderr of the launched command are not shown.
 
+`Ctrl+Enter` must arrive as a modified key (CSI u, `ESC[27;5;13~`) to be
+distinguished from `Enter`, and some terminals do not transmit it at all
+(Windows Terminal sends nothing for `Ctrl+Enter` by default). If the
+action never fires, bind the key in the terminal to send that sequence
+(Windows Terminal: a `sendInput` action with input `\u001b[27;5;13~`
+assigned to `ctrl+enter` in `keybindings`).
+
 A `preferences.json` whose JSON, known types, or known enum values are
 invalid is rejected whole: the viewer falls back to the built-in defaults
 and shows a brief footer toast. A missing file never warns. `w` writes use
