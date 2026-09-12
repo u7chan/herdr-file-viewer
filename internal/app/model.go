@@ -418,7 +418,8 @@ func (m *Model) View() tea.View {
 	gitInfoRowHeight := gitInfoHeight(m.height)
 	lines := make([]string, 0, headerHeight+topDividerHeight+treeHeight+bottomDividerHeight+gitInfoRowHeight+footerHeight)
 	if headerHeight > 0 {
-		lines = append(lines, m.renderStyledLine("Herdr File Viewer", titleStyle))
+		title := strings.Repeat(" ", m.contentLeftPadding()) + "Herdr File Viewer"
+		lines = append(lines, m.renderStyledLine(title, titleStyle))
 	}
 	if topDividerHeight > 0 {
 		lines = append(lines, m.renderDivider())

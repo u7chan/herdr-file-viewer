@@ -290,8 +290,8 @@ applied and shows a footer warning.
 The title occupies the first row and is left aligned within the pane. On a
 normal pane, a full-width `─` divider follows the title and another one
 separates the tree from the bottom-fixed Footer. The root HOME path is pinned
-immediately below the title divider; only its descendants scroll. The tree and
-Footer have a small left inset. The Footer contains
+immediately below the title divider; only its descendants scroll. The title,
+tree, and Footer have a small left inset. The Footer contains
 `space copy    h help    q quit` during normal operation, with the key labels emphasized
 and the action labels muted; loading, warning, or error status replaces those
 hints when relevant, and a brief toast (`Reloaded`) appears for a few
@@ -336,8 +336,9 @@ stealing the keyboard focus. The preview reads the file path passed through
 `HERDR_PREVIEW_FILE` from disk at startup and on manual reload (the tree cache
 is not used), and shows a snapshot of its head.
 The layout mirrors the tree:
-a left-aligned title (absolute path, tail-truncated with `…`), dividers,
-a body with a line-number gutter and a vertical divider, and the footer
+a left-aligned title with the small left inset (absolute path, tail-truncated
+with `…`), dividers, a body with a line-number gutter and a vertical divider,
+and the footer
 `space copy    h help    q close`.
 
 Previewability is classified before rendering: known image, video, audio, and
