@@ -20,7 +20,7 @@ import (
 var toastDisplayDuration = 3 * time.Second
 
 var (
-	titleStyle                = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Align(lipgloss.Center)
+	titleStyle                = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Align(lipgloss.Left)
 	selectedStyleDark         = lipgloss.NewStyle().Background(lipgloss.Color(selectedRowBackgroundDark))
 	selectedStyleLight        = lipgloss.NewStyle().Background(lipgloss.Color(selectedRowBackgroundLight))
 	toastStyle                = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
@@ -418,7 +418,8 @@ func (m *Model) View() tea.View {
 	gitInfoRowHeight := gitInfoHeight(m.height)
 	lines := make([]string, 0, headerHeight+topDividerHeight+treeHeight+bottomDividerHeight+gitInfoRowHeight+footerHeight)
 	if headerHeight > 0 {
-		lines = append(lines, m.renderStyledLine("Herdr File Viewer", titleStyle))
+		title := strings.Repeat(" ", m.contentLeftPadding()) + "Herdr File Viewer"
+		lines = append(lines, m.renderStyledLine(title, titleStyle))
 	}
 	if topDividerHeight > 0 {
 		lines = append(lines, m.renderDivider())

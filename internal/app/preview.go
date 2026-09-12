@@ -910,7 +910,8 @@ func (m *PreviewModel) renderTitle() string {
 	if m.file != "" {
 		title = sanitizeDisplay(m.file)
 	}
-	return renderStyledLineAt(truncateRootPath(title, m.width), titleStyle, m.width)
+	title = truncateRootPath(title, m.width-m.contentLeftPadding())
+	return renderStyledLineAt(strings.Repeat(" ", m.contentLeftPadding())+title, titleStyle, m.width)
 }
 
 func (m *PreviewModel) unsupportedLabel() string {

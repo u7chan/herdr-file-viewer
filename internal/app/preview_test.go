@@ -1138,6 +1138,9 @@ func TestPreviewRendersTitleFooterAndTruncatedMarker(t *testing.T) {
 	if !strings.HasSuffix(title, "/file.txt") {
 		t.Fatalf("title = %q, want the file path tail", title)
 	}
+	if got := strings.TrimRight(lines[0], " "); got != " "+title {
+		t.Fatalf("title row = %q, want the title indented by the content inset", lines[0])
+	}
 	body := model.bodyHeight()
 	markerRow := 1 + headerDividerHeight(model.height) + body - 1
 	if !strings.Contains(lines[markerRow], "truncated (2 MiB limit)") {
@@ -1145,6 +1148,21 @@ func TestPreviewRendersTitleFooterAndTruncatedMarker(t *testing.T) {
 	}
 	if got := strings.TrimRight(lines[len(lines)-1], " "); got != " space copy    h help    q close" {
 		t.Fatalf("footer = %q, want preview shortcuts", got)
+	}
+}
+
+func TestPreviewTitleKeepsThePathTailWithinTheContentInset(t *testing.T) {
+	reader := &fakePreviewReader{content: []byte("x")}
+	const path = "/abs/very-long-directory-name/nested/file.txt"
+	model := NewPreviewModel(path, nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 30, Height: 6})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	lines := strings.Split(ansi.Strip(model.View().Content), "\n")
+	inset := model.contentLeftPadding()
+	want := strings.Repeat(" ", inset) + truncateRootPath(path, 30-inset)
+	if got := strings.TrimRight(lines[0], " "); got != want {
+		t.Fatalf("title row = %q, want %q", lines[0], want)
 	}
 }
 

@@ -501,13 +501,11 @@ func TestFooterAndDividerReserveTheBottomOfTheViewport(t *testing.T) {
 		t.Fatalf("view lines = %d, want 6: %q", len(lines), model.View().Content)
 	}
 	header := lines[0]
-	if strings.TrimSpace(header) != "Herdr File Viewer" {
-		t.Fatalf("header = %q, want centered title", header)
+	if got := strings.TrimRight(header, " "); got != " Herdr File Viewer" {
+		t.Fatalf("header = %q, want the title indented by the content inset", header)
 	}
-	leftPadding := len(header) - len(strings.TrimLeft(header, " "))
-	rightPadding := len(header) - len(strings.TrimRight(header, " "))
-	if leftPadding < rightPadding-1 || leftPadding > rightPadding+1 {
-		t.Fatalf("header padding = left %d, right %d; want centered title", leftPadding, rightPadding)
+	if got := lipgloss.Width(header); got != 80 {
+		t.Fatalf("header cell width = %d, want 80", got)
 	}
 	if !strings.Contains(lines[1], dividerGlyph) || lipgloss.Width(lines[1]) != 80 {
 		t.Fatalf("header divider = %q, want a full-width divider", lines[1])
