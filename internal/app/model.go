@@ -20,7 +20,7 @@ import (
 var toastDisplayDuration = 3 * time.Second
 
 var (
-	titleStyle                = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Align(lipgloss.Center)
+	titleStyle                = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Align(lipgloss.Left)
 	selectedStyleDark         = lipgloss.NewStyle().Background(lipgloss.Color(selectedRowBackgroundDark))
 	selectedStyleLight        = lipgloss.NewStyle().Background(lipgloss.Color(selectedRowBackgroundLight))
 	toastStyle                = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))

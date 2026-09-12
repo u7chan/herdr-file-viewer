@@ -1138,6 +1138,9 @@ func TestPreviewRendersTitleFooterAndTruncatedMarker(t *testing.T) {
 	if !strings.HasSuffix(title, "/file.txt") {
 		t.Fatalf("title = %q, want the file path tail", title)
 	}
+	if got := strings.TrimRight(lines[0], " "); got != title {
+		t.Fatalf("title row = %q, want the title flush against the left edge", lines[0])
+	}
 	body := model.bodyHeight()
 	markerRow := 1 + headerDividerHeight(model.height) + body - 1
 	if !strings.Contains(lines[markerRow], "truncated (2 MiB limit)") {
