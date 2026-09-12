@@ -25,6 +25,9 @@ type stubPaneClient struct {
 	closeErr error
 	closed   []string
 
+	focusErr   error
+	focusCalls []string
+
 	getInfo  herdr.PaneInfo
 	getFound bool
 	getErr   error
@@ -44,6 +47,11 @@ func (s *stubPaneClient) OpenPane(request herdr.OpenPaneRequest) (string, error)
 func (s *stubPaneClient) ClosePane(paneID string) error {
 	s.closed = append(s.closed, paneID)
 	return s.closeErr
+}
+
+func (s *stubPaneClient) FocusPane(paneID string) error {
+	s.focusCalls = append(s.focusCalls, paneID)
+	return s.focusErr
 }
 
 func (s *stubPaneClient) ClosePreviewPane(paneID string) error {
@@ -78,6 +86,7 @@ func TestPreviewClientAdapterOpenPreviewFixesPluginIdentityAndEnv(t *testing.T) 
 		Placement:  "split",
 		TargetPane: "wY:p3K",
 		Direction:  "right",
+		Focus:      true,
 		Env:        []string{herdr.PreviewFileEnv + "=/abs/file.md"},
 	}
 	if !reflect.DeepEqual(stub.openRequest, want) {
@@ -87,6 +96,23 @@ func TestPreviewClientAdapterOpenPreviewFixesPluginIdentityAndEnv(t *testing.T) 
 	stub.openErr = errors.New("daemon down")
 	if _, err := client.OpenPreview("/a", "wY:p3K"); err == nil {
 		t.Fatal("OpenPreview() error = nil, want propagated error")
+	}
+}
+
+func TestPreviewClientAdapterFocusPaneDelegatesToTheHerdrClient(t *testing.T) {
+	stub := &stubPaneClient{}
+	client := paneClientAdapter{client: stub}
+
+	if err := client.FocusPane("wY:p9Z"); err != nil {
+		t.Fatalf("FocusPane() error = %v, want nil", err)
+	}
+	if got, want := stub.focusCalls, []string{"wY:p9Z"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("FocusPane() calls = %v, want %v", got, want)
+	}
+
+	stub.focusErr = errors.New("plugin pane not found")
+	if err := client.FocusPane("wY:p9Z"); err == nil {
+		t.Fatal("FocusPane() error = nil, want propagated error")
 	}
 }
 

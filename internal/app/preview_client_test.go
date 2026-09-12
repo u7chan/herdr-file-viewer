@@ -24,12 +24,13 @@ func TestRunPreviewSwapKeepsOnePreviewForTheFile(t *testing.T) {
 		wantPaneID   string
 		wantOpens    int
 		wantCloses   []string
+		wantFocused  []string
 		wantRemoved  []string
 		wantGetCalls int
 		wantList     int
 	}{
 		{
-			name: "tracked pane shows the same file, keep it",
+			name: "tracked pane shows the same file, keep and focus it",
 			client: stubPreviewClient{
 				getPane:  PreviewPane{PaneID: "wY:p1", File: "/a.md"},
 				getFound: true,
@@ -37,6 +38,7 @@ func TestRunPreviewSwapKeepsOnePreviewForTheFile(t *testing.T) {
 			tracked:      "wY:p1",
 			file:         "/a.md",
 			wantPaneID:   "wY:p1",
+			wantFocused:  []string{"wY:p1"},
 			wantGetCalls: 1,
 		},
 		{
@@ -54,13 +56,14 @@ func TestRunPreviewSwapKeepsOnePreviewForTheFile(t *testing.T) {
 			wantGetCalls: 1,
 		},
 		{
-			name: "tracked pane is gone, rediscover the same file in the list",
+			name: "tracked pane is gone, rediscover and focus the same file in the list",
 			client: stubPreviewClient{
 				panes: []PreviewPane{{PaneID: "wY:p2", File: "/a.md"}},
 			},
 			tracked:      "wY:p1",
 			file:         "/a.md",
 			wantPaneID:   "wY:p2",
+			wantFocused:  []string{"wY:p2"},
 			wantGetCalls: 1,
 			wantList:     1,
 		},
@@ -91,9 +94,10 @@ func TestRunPreviewSwapKeepsOnePreviewForTheFile(t *testing.T) {
 			client: stubPreviewClient{
 				panes: []PreviewPane{{PaneID: "wY:p2"}, {PaneID: "wY:p3", File: "/a.md"}},
 			},
-			file:       "/a.md",
-			wantPaneID: "wY:p3",
-			wantList:   1,
+			file:        "/a.md",
+			wantPaneID:  "wY:p3",
+			wantFocused: []string{"wY:p3"},
+			wantList:    1,
 		},
 		{
 			name: "tracked pane exists without a token, reopen it",
@@ -127,6 +131,9 @@ func TestRunPreviewSwapKeepsOnePreviewForTheFile(t *testing.T) {
 			if !reflect.DeepEqual(client.closed, test.wantCloses) {
 				t.Fatalf("closed = %v, want %v", client.closed, test.wantCloses)
 			}
+			if !reflect.DeepEqual(client.focused, test.wantFocused) {
+				t.Fatalf("focused = %v, want %v", client.focused, test.wantFocused)
+			}
 			if !reflect.DeepEqual(client.removedState, test.wantRemoved) {
 				t.Fatalf("removed state = %v, want %v", client.removedState, test.wantRemoved)
 			}
@@ -147,21 +154,35 @@ func TestRunPreviewSwapKeepsOnePreviewForTheFile(t *testing.T) {
 
 func TestRunPreviewSwapSurfacesClientFailures(t *testing.T) {
 	tests := []struct {
-		name   string
-		client stubPreviewClient
-		want   string
+		name       string
+		client     stubPreviewClient
+		want       string
+		wantPaneID string
 	}{
 		{name: "get failure", client: stubPreviewClient{getErr: errors.New("socket broke")}, want: "socket broke"},
 		{name: "list failure", client: stubPreviewClient{listErr: errors.New("daemon down")}, want: "daemon down"},
 		{name: "close failure", client: stubPreviewClient{getPane: PreviewPane{PaneID: "wY:p1", File: "/x"}, getFound: true, closeErr: errors.New("close failed")}, want: "close failed"},
 		{name: "open failure", client: stubPreviewClient{openErr: errors.New("open failed")}, want: "open failed"},
+		{
+			name: "focus failure keeps the tracked pane",
+			client: stubPreviewClient{
+				getPane:  PreviewPane{PaneID: "wY:p1", File: "/a.md"},
+				getFound: true,
+				focusErr: errors.New("plugin pane not found"),
+			},
+			want:       "focus pane: plugin pane not found",
+			wantPaneID: "wY:p1",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := test.client
-			_, err := runPreviewSwap(&client, "wY", "wY:p1", "/a.md", "wY:p3K")
+			paneID, err := runPreviewSwap(&client, "wY", "wY:p1", "/a.md", "wY:p3K")
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("runPreviewSwap() error = %v, want mention of %q", err, test.want)
+			}
+			if paneID != test.wantPaneID {
+				t.Fatalf("runPreviewSwap() pane ID = %q, want %q", paneID, test.wantPaneID)
 			}
 		})
 	}
@@ -316,6 +337,9 @@ func TestMouseFileClickOnSameFileKeepsExistingPreview(t *testing.T) {
 	if got, want := client.getCalls, []string{"wY:p9Z"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("same-file click get calls = %v, want %v", got, want)
 	}
+	if got, want := client.focused, []string{"wY:p9Z"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("same-file click focus calls = %v, want %v", got, want)
+	}
 	if got, want := client.listed, []string{"wY"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("same-file click listed workspaces = %v, want %v", got, want)
 	}
@@ -436,6 +460,40 @@ func TestEnterSameFileKeepsExistingPreview(t *testing.T) {
 	if len(client.openFiles) != 1 || len(client.closed) != 0 {
 		t.Fatalf("same-file enter opened %v / closed %v, want no-op", client.openFiles, client.closed)
 	}
+	if got, want := client.focused, []string{"wY:p9Z"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("same-file enter focused = %v, want %v", got, want)
+	}
+}
+
+func TestEnterSameFileFocusFailureWarnsAndKeepsTracking(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "file.txt", Mode: 0}})
+	client := &stubPreviewClient{
+		openPaneID: "wY:p9Z",
+		getPane:    PreviewPane{PaneID: "wY:p9Z", File: filepath.Join(root, "file.txt")},
+		getFound:   true,
+		focusErr:   errors.New("plugin pane not found"),
+	}
+	model := NewModelWithPreview(root, "", PreviewConfig{Client: client, TargetPane: "wY:p3K", WorkspaceID: "wY"}, fake)
+	completeInitialLoad(t, model)
+	model.previewPaneID = "wY:p9Z"
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+
+	cmd := model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter on the same file returned nil command")
+	}
+	model.Update(cmd().(previewResultMsg))
+	if !strings.Contains(model.warning, "focus pane: plugin pane not found") {
+		t.Fatalf("warning = %q, want the focus failure surfaced", model.warning)
+	}
+	if model.previewPaneID != "wY:p9Z" {
+		t.Fatalf("tracked pane = %q, want the unfocusable pane kept for the next activation", model.previewPaneID)
+	}
+	if len(client.openFiles) != 0 || len(client.closed) != 0 {
+		t.Fatalf("focus failure opened %v / closed %v, want the existing pane kept", client.openFiles, client.closed)
+	}
 }
 
 func TestEnterDifferentFileClosesAndReopensPreview(t *testing.T) {
@@ -492,6 +550,9 @@ func TestEnterRediscoveryAdoptsPreviewFromList(t *testing.T) {
 	}
 	if len(client.openFiles) != 0 {
 		t.Fatalf("rediscovery opened %v, want no-op", client.openFiles)
+	}
+	if got, want := client.focused, []string{"wY:pOld"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("rediscovery focused = %v, want %v", got, want)
 	}
 }
 

@@ -173,8 +173,8 @@ var runProgram = func(model tea.Model) error {
 
 // newPreviewClient adapts the herdr CLI implementation to the app-side
 // preview interface, fixing the plugin identity, the split placement, the
-// metadata token name, and the durable restore state at the composition
-// root.
+// focus, the metadata token name, and the durable restore state at the
+// composition root.
 func newPreviewClient() app.PreviewClient {
 	return paneClientAdapter{
 		client: herdr.NewCLIPaneClient(),
@@ -194,8 +194,15 @@ func (a paneClientAdapter) OpenPreview(file, targetPane string) (string, error) 
 		Placement:  "split",
 		TargetPane: targetPane,
 		Direction:  "right",
-		Env:        []string{herdr.PreviewFileEnv + "=" + file},
+		// The preview is what the user asked to see, so the keyboard focus
+		// follows it instead of staying in the tree.
+		Focus: true,
+		Env:   []string{herdr.PreviewFileEnv + "=" + file},
 	})
+}
+
+func (a paneClientAdapter) FocusPane(paneID string) error {
+	return a.client.FocusPane(paneID)
 }
 
 func (a paneClientAdapter) ClosePane(paneID string) error {

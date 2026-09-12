@@ -159,6 +159,8 @@ type PaneProcessInfo struct {
 type PaneClient interface {
 	// OpenPane opens a plugin pane and returns its pane ID.
 	OpenPane(request OpenPaneRequest) (string, error)
+	// FocusPane moves the keyboard focus to an existing plugin pane.
+	FocusPane(paneID string) error
 	// ClosePane closes a pane. Closing an already-missing pane succeeds.
 	ClosePane(paneID string) error
 	// ClosePreviewPane closes a preview pane with the plugin-close primary
@@ -270,6 +272,14 @@ func (c *CLIPaneClient) OpenPane(request OpenPaneRequest) (string, error) {
 		return "", fmt.Errorf("open response contains no pane_id")
 	}
 	return response.PluginPane.Pane.PaneID, nil
+}
+
+// FocusPane runs `herdr plugin pane focus`. Only panes the plugin opened in
+// the current server run are focusable: a pane restored by the session
+// restore is a plain pane without plugin ownership again, so the daemon
+// answers plugin_pane_not_found (mapped to ErrPluginPaneNotFound).
+func (c *CLIPaneClient) FocusPane(paneID string) error {
+	return c.runCLI([]string{"plugin", "pane", "focus", paneID}, nil)
 }
 
 // ClosePane runs `herdr plugin pane close`. A pane that already disappeared

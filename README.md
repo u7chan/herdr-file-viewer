@@ -20,12 +20,12 @@ directory expansion, cell-aware single-line rendering, recoverable directory
 errors, symlink-as-entry handling, keyboard and mouse scrolling with visible
 scrollbar dragging, left-click selection/toggle, find navigation, root moves
 that chdir with the displayed root (`C` / `Backspace`), a Git branch and
-status snapshot, OSC 52 path copying, and a Help popup. `Enter` opens a text
-preview pane with line numbers, syntax highlighting for recognized source,
-configuration, and markup filenames (files without a matching lexer remain
-plain text), wrap and space-visualization toggles, mouse text selection with
-OSC 52 copy, horizontal scrolling, and manual reload. On a file or folder,
-`Ctrl+Enter` runs the corresponding configured default action
+status snapshot, OSC 52 path copying, and a Help popup. `Enter` opens a
+focused text preview pane with line numbers, syntax highlighting for
+recognized source, configuration, and markup filenames (files without a
+matching lexer remain plain text), wrap and space-visualization toggles, mouse
+text selection with OSC 52 copy, horizontal scrolling, and manual reload. On a
+file or folder, `Ctrl+Enter` runs the corresponding configured default action
 (`actions.file` / `actions.folder` from `preferences.json`) in the user's
 interactive shell, detached from the TUI. Eligible Files and
 Preview panes are restored in place after a Herdr session restore; a
@@ -139,7 +139,12 @@ state is deliberately kept when the server stops.
 A preview pane restored this way has no Herdr plugin ownership, so when the
 tree switches it to another file the close falls back from
 `plugin pane close` to the plain `pane close` for panes already verified as
-previews by their metadata; no unrelated pane is ever closed.
+previews by their metadata; no unrelated pane is ever closed. For the same
+reason the tree cannot move the keyboard focus to such a pane while it still
+shows the restored file: `plugin pane focus` refuses panes the plugin does
+not own, so `Enter` on that file reports a footer warning instead. Switching
+to another file reopens the pane with plugin ownership, and the focus move
+works there again.
 
 To verify restore behavior on a disposable server without touching
 production sockets or state, run the smoke with a short isolated config and
@@ -263,11 +268,12 @@ applied and shows a footer warning.
   entry no longer exists. Completion is confirmed by a brief in-app toast in
   the footer, so the reload feedback does not depend on Herdr settings.
 - `Enter`: open a text preview of the selected file in a right split pane and
-  keep the keyboard focus in the tree; it is equivalent to left-clicking a
-  previewable file row. Directories and symlinks whose target is a directory
-  or missing are ignored. The preview pane is tracked by its pane ID and
-  re-discovered through its `preview=<path>` metadata token after a tree
-  restart; pressing `Enter` on the file already shown keeps the existing pane,
+  move the keyboard focus to that pane, so `q` closes the preview instead of
+  the tree; it is equivalent to left-clicking a previewable file row.
+  Directories and symlinks whose target is a directory or missing are ignored.
+  The preview pane is tracked by its pane ID and re-discovered through its
+  `preview=<path>` metadata token after a tree restart; pressing `Enter` on the
+  file already shown keeps the existing pane and only moves the focus to it,
   and pressing it on another file closes and reopens the pane. Without a Herdr
   context (`HERDR_PANE_ID` missing) `Enter` stays a no-op; CLI failures surface
   as a footer warning and the tree keeps working.
@@ -331,8 +337,9 @@ there is no in-pane fallback help.
 
 ### Preview pane
 
-`Enter` in the tree opens the `preview` entrypoint as a right split without
-stealing the keyboard focus. The preview reads the file path passed through
+`Enter` in the tree opens the `preview` entrypoint as a right split and moves
+the keyboard focus to it, so the preview keys apply immediately. The preview
+reads the file path passed through
 `HERDR_PREVIEW_FILE` from disk at startup and on manual reload (the tree cache
 is not used), and shows a snapshot of its head.
 The layout mirrors the tree:
