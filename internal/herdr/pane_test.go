@@ -209,6 +209,27 @@ func TestClosePaneToleratesAlreadyMissingPane(t *testing.T) {
 	}
 }
 
+func TestFocusPaneBuildsArgumentsAndMapsMissingPluginPane(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"id":"cli:plugin","result":{"plugin_pane":{"entrypoint":"preview","pane":{"pane_id":"wY:p9Z"},"plugin_id":"u7chan.file-viewer"},"type":"plugin_pane_focused"}}`}
+	client := &CLIPaneClient{runner: runner}
+
+	if err := client.FocusPane("wY:p9Z"); err != nil {
+		t.Fatalf("FocusPane() error = %v", err)
+	}
+	want := []string{"plugin", "pane", "focus", "wY:p9Z"}
+	if len(runner.args) != 1 || !reflect.DeepEqual(runner.args[0], want) {
+		t.Fatalf("FocusPane() args = %v, want %v", runner.args, want)
+	}
+
+	restored := &CLIPaneClient{runner: &fakeRunner{
+		stderr: `{"error":{"code":"plugin_pane_not_found","message":"plugin pane not found"},"id":"cli:plugin"}`,
+		err:    errors.New("exit status 1"),
+	}}
+	if err := restored.FocusPane("wY:pOld"); !errors.Is(err, ErrPluginPaneNotFound) {
+		t.Fatalf("FocusPane(restored pane) error = %v, want ErrPluginPaneNotFound", err)
+	}
+}
+
 func TestListPanesScopesToWorkspaceAndParsesTokens(t *testing.T) {
 	runner := &fakeRunner{stdout: `{"id":"cli:pane:list","result":{"panes":[
 		{"pane_id":"wY:p1","tokens":{}},

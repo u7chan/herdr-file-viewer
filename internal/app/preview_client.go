@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -27,8 +28,12 @@ type PreviewPane struct {
 // subprocess implementation and tests can supply deterministic doubles.
 type PreviewClient interface {
 	// OpenPreview opens the preview entrypoint in a right split beside
-	// targetPane without focusing it, and returns the new pane ID.
+	// targetPane, moves the keyboard focus to the new pane, and returns the
+	// new pane ID.
 	OpenPreview(file, targetPane string) (paneID string, err error)
+	// FocusPane moves the keyboard focus to an existing preview pane.
+	// A pane the daemon no longer owns as a plugin pane cannot be focused.
+	FocusPane(paneID string) error
 	// ClosePane closes a pane. Closing an already-missing pane succeeds.
 	ClosePane(paneID string) error
 	// GetPane reports whether the pane still exists.
@@ -88,7 +93,9 @@ func (m *Model) openPreviewOnActivate() tea.Cmd {
 	return func() tea.Msg {
 		paneID, err := runPreviewSwap(client, workspaceID, trackedPaneID, file, targetPane)
 		if err != nil {
-			return previewResultMsg{seq: seq, err: sanitizeDisplay(err.Error())}
+			// A failed focus still reports the pane it knows, so the tree
+			// keeps tracking it instead of opening a duplicate preview.
+			return previewResultMsg{seq: seq, paneID: paneID, err: sanitizeDisplay(err.Error())}
 		}
 		return previewResultMsg{seq: seq, paneID: paneID}
 	}
@@ -111,12 +118,14 @@ func previewTargetPath(node *browser.Node) (string, bool) {
 	return path, true
 }
 
-// runPreviewSwap guarantees that exactly one preview pane displays file:
-// the tracked pane (from a previous open) is checked through GetPane, and
-// when it is unknown or dead the workspace list is searched for a pane
-// carrying the preview token. A pane already showing the same file is kept
-// (no-op); a pane showing another file is closed and reopened; otherwise a
-// new pane is opened. The returned pane ID is the one to track afterwards.
+// runPreviewSwap guarantees that exactly one preview pane displays file and
+// that the keyboard focus ends up there: the tracked pane (from a previous
+// open) is checked through GetPane, and when it is unknown or dead the
+// workspace list is searched for a pane carrying the preview token. A pane
+// already showing the same file is kept and focused; a pane showing another
+// file is closed and reopened focused; otherwise a new pane is opened. The
+// returned pane ID is the one to track afterwards, and it is reported even
+// when only the focus move failed.
 func runPreviewSwap(client PreviewClient, workspaceID, trackedPaneID, file, targetPane string) (string, error) {
 	if trackedPaneID != "" {
 		pane, found, err := client.GetPane(trackedPaneID)
@@ -125,7 +134,7 @@ func runPreviewSwap(client PreviewClient, workspaceID, trackedPaneID, file, targ
 		}
 		if found {
 			if pane.File == file {
-				return trackedPaneID, nil
+				return focusPreviewPane(client, trackedPaneID)
 			}
 			if err := client.ClosePane(trackedPaneID); err != nil {
 				return "", err
@@ -144,7 +153,7 @@ func runPreviewSwap(client PreviewClient, workspaceID, trackedPaneID, file, targ
 			continue
 		}
 		if pane.File == file {
-			return pane.PaneID, nil
+			return focusPreviewPane(client, pane.PaneID)
 		}
 		if err := client.ClosePane(pane.PaneID); err != nil {
 			return "", err
@@ -153,6 +162,16 @@ func runPreviewSwap(client PreviewClient, workspaceID, trackedPaneID, file, targ
 		return client.OpenPreview(file, targetPane)
 	}
 	return client.OpenPreview(file, targetPane)
+}
+
+// focusPreviewPane moves the keyboard focus to the preview pane that already
+// shows the requested file. The pane is known, so its ID is returned with the
+// error to keep the tree tracking it.
+func focusPreviewPane(client PreviewClient, paneID string) (string, error) {
+	if err := client.FocusPane(paneID); err != nil {
+		return paneID, fmt.Errorf("focus pane: %w", err)
+	}
+	return paneID, nil
 }
 
 // addWarning appends one distinct warning to the persistent footer warning,
