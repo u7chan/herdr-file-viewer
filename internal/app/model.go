@@ -530,6 +530,7 @@ func (m *Model) handleMouseMotion(msg tea.MouseMotionMsg) {
 	}
 	m.offset = metrics.offsetForThumbStart(localY)
 	m.clampSelectionToViewport()
+	m.trackSelection()
 }
 
 func (m *Model) handleMouseRelease() {
@@ -561,6 +562,7 @@ func (m *Model) beginScrollbarDrag(y int) {
 	}
 	m.offset = metrics.offsetForThumbStart(thumbStart)
 	m.clampSelectionToViewport()
+	m.trackSelection()
 	m.draggingScrollbar = true
 	m.dragScrollbarOffset = grabOffset
 }

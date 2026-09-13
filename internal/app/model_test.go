@@ -1010,6 +1010,70 @@ func TestFocusReturnReloadKeepsTheSelectionAfterWheelScroll(t *testing.T) {
 	}
 }
 
+// Clicking the scrollbar track drags the selection the same way the wheel
+// does: the focus-return reload must follow it instead of pulling the cursor
+// back.
+func TestFocusReturnReloadKeepsTheSelectionAfterScrollbarTrackClick(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	entries := make([]filesystem.Entry, 0, 30)
+	for index := 0; index < 30; index++ {
+		entries = append(entries, filesystem.Entry{Name: "file-" + string(rune('a'+index)), Mode: 0})
+	}
+	fake.set(root, entries)
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 32, Height: 8})
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+
+	_, reload := model.Update(tea.FocusMsg{})
+	trackY := model.treeStartY() + model.scrollableViewportHeight()
+	model.Update(tea.MouseClickMsg{X: model.width - 1, Y: trackY, Button: tea.MouseLeft})
+	if !model.draggingScrollbar {
+		t.Fatal("scrollbar track click did not start a drag")
+	}
+	want := model.selectedNode()
+	if want == nil || model.selected == 1 {
+		t.Fatalf("scrollbar track click left the selection at the initial row: %v", want)
+	}
+	applyReload(t, model, reload)
+	if got := model.selectedNode(); got == nil || got.Name() != want.Name() {
+		t.Fatalf("selection after the focus-return reload = %v, want %v", got, want)
+	}
+}
+
+// Dragging the scrollbar thumb drags the selection the same way; the
+// focus-return reload must follow it too.
+func TestFocusReturnReloadKeepsTheSelectionAfterScrollbarDrag(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeFileSystem()
+	entries := make([]filesystem.Entry, 0, 30)
+	for index := 0; index < 30; index++ {
+		entries = append(entries, filesystem.Entry{Name: "file-" + string(rune('a'+index)), Mode: 0})
+	}
+	fake.set(root, entries)
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 32, Height: 8})
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+
+	_, reload := model.Update(tea.FocusMsg{})
+	startY := model.treeStartY()
+	model.Update(tea.MouseClickMsg{X: model.width - 1, Y: startY + stickyRootHeight, Button: tea.MouseLeft})
+	if !model.draggingScrollbar {
+		t.Fatal("scrollbar press did not start a drag")
+	}
+	model.Update(tea.MouseMotionMsg{X: model.width - 1, Y: startY + model.scrollableViewportHeight(), Button: tea.MouseLeft})
+	want := model.selectedNode()
+	if want == nil || model.selected == 1 {
+		t.Fatalf("scrollbar drag left the selection at the initial row: %v", want)
+	}
+	applyReload(t, model, reload)
+	if got := model.selectedNode(); got == nil || got.Name() != want.Name() {
+		t.Fatalf("selection after the focus-return reload = %v, want %v", got, want)
+	}
+}
+
 func TestScrollbarIsVisibleAndTracksTheViewport(t *testing.T) {
 	metrics := newScrollbarMetrics(3, 4, 0)
 	if metrics.thumbSize != 2 || metrics.maxThumbStart() != 1 {
