@@ -471,6 +471,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg, activateRow bool) tea.Cm
 	}
 
 	m.selected = index
+	m.trackSelection()
 	node := m.selectedNode()
 	if node == nil || node.Parent() == nil || !activateRow {
 		return nil
@@ -813,6 +814,19 @@ func (m *Model) showToast(text string) tea.Cmd {
 	})
 }
 
+// trackSelection points a pending reload anchor at the row the user just
+// moved to. The focus-return refresh captures its anchor before the
+// navigation arrives, so without tracking it the load that lands afterwards
+// would drag the cursor back to the pre-navigation row.
+func (m *Model) trackSelection() {
+	if m.restorePath == "" {
+		return
+	}
+	if node := m.selectedNode(); node != nil {
+		m.restorePath = node.Path()
+	}
+}
+
 // restoreSelectionAfterReload re-anchors the selection once a reload has
 // finished. The pre-reload path is restored when it still exists; otherwise
 // the selection settles on the last visible row.
@@ -999,6 +1013,7 @@ func (m *Model) collapseOrMoveToParent() {
 	}
 	if index := m.indexOfNode(parent); index >= 0 {
 		m.selected = index
+		m.trackSelection()
 		m.keepSelectionVisible()
 	}
 }
@@ -1015,6 +1030,7 @@ func (m *Model) moveSelection(delta int) {
 	if m.selected >= len(m.visibleRows) {
 		m.selected = len(m.visibleRows) - 1
 	}
+	m.trackSelection()
 	m.keepSelectionVisible()
 }
 
@@ -1027,6 +1043,7 @@ func (m *Model) selectBoundary(last bool) {
 	} else {
 		m.selected = 0
 	}
+	m.trackSelection()
 	m.keepSelectionVisible()
 }
 
@@ -1062,6 +1079,7 @@ func (m *Model) scrollBy(delta int) {
 	if actualDelta != 0 && m.selected != 0 {
 		m.selected += actualDelta
 		m.clampSelectionToViewport()
+		m.trackSelection()
 	}
 }
 
