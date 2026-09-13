@@ -164,6 +164,7 @@ func (m *Model) deleteFindGrapheme() {
 func (m *Model) moveToFirstFindMatch() {
 	if index := firstMatchingVisibleRow(m.visibleRows, m.findQuery); index >= 0 {
 		m.selected = index
+		m.trackSelection()
 		m.keepSelectionVisible()
 	}
 }
@@ -177,6 +178,7 @@ func (m *Model) moveFindMatch(query string, direction int) {
 	}
 	if index >= 0 {
 		m.selected = index
+		m.trackSelection()
 		m.keepSelectionVisible()
 	}
 }
@@ -207,12 +209,14 @@ func (m *Model) restoreFindAnchor(path string) {
 	for index, row := range m.visibleRows {
 		if row.Node != nil && row.Node.Path() == path {
 			m.selected = index
+			m.trackSelection()
 			m.keepSelectionVisible()
 			return
 		}
 	}
 	if len(m.visibleRows) > 0 {
 		m.selected = len(m.visibleRows) - 1
+		m.trackSelection()
 		m.keepSelectionVisible()
 	}
 }

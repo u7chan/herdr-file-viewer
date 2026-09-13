@@ -379,6 +379,49 @@ func TestMouseFileClickOnDifferentFileClosesAndReopensPreview(t *testing.T) {
 	}
 }
 
+// A click on a tree row returns the terminal focus to the tree, so the
+// focus-return reload starts before the click is handled. The row the click
+// selects must survive the reload that lands afterwards.
+func TestMouseClickAfterPreviewFocusSurvivesTheFocusReturnReload(t *testing.T) {
+	root := t.TempDir()
+	aPath := filepath.Join(root, "a.txt")
+	bPath := filepath.Join(root, "b.txt")
+	fake := newFakeFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "a.txt", Mode: 0}, {Name: "b.txt", Mode: 0}})
+	client := &stubPreviewClient{
+		openPaneID: "wY:p9Z",
+		getPane:    PreviewPane{PaneID: "wY:p9Z", File: aPath},
+		getFound:   true,
+	}
+	model := NewModelWithPreview(root, "", PreviewConfig{Client: client, TargetPane: "wY:p3K", WorkspaceID: "wY"}, fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+
+	// The first click opens the preview and moves the focus to that pane.
+	first := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: model.treeStartY() + stickyRootHeight, Button: tea.MouseLeft})
+	if first == nil {
+		t.Fatal("first file click returned nil command")
+	}
+	model.Update(first().(previewResultMsg))
+
+	// The second click brings the focus back, so the focus-return reload and
+	// the click are handled in that order before the load result lands.
+	_, reload := model.Update(tea.FocusMsg{})
+	second := model.UpdateMouse(tea.MouseClickMsg{X: 0, Y: model.treeStartY() + stickyRootHeight + 1, Button: tea.MouseLeft})
+	if second == nil {
+		t.Fatal("second file click returned nil command")
+	}
+	model.Update(second().(previewResultMsg))
+	applyReload(t, model, reload)
+
+	if node := model.selectedNode(); node == nil || node.Name() != "b.txt" {
+		t.Fatalf("selection after the focus-return reload = %v, want b.txt", node)
+	}
+	if got, want := client.openFiles, []string{aPath, bPath}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("opened files = %v, want %v", got, want)
+	}
+}
+
 func TestEnterOpensPreviewAndKeepsTreeState(t *testing.T) {
 	root := t.TempDir()
 	filePath := filepath.Join(root, "file.txt")

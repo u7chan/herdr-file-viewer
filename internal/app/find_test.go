@@ -783,6 +783,25 @@ func TestFindPromptOverridesToastAndStatus(t *testing.T) {
 	}
 }
 
+// A find jump moves the cursor the same way a click or a key move does: the
+// focus-return reload must follow it instead of pulling the cursor back.
+func TestFocusReturnReloadKeepsTheFindJumpSelection(t *testing.T) {
+	model, _ := newFindModel(t, "alpha", "target")
+	model.selected = findVisibleIndex(t, model, "alpha")
+
+	_, reload := model.Update(tea.FocusMsg{})
+	model.UpdateKey(findTextKey("/"))
+	model.UpdateKey(findTextKey("target"))
+	if node := model.selectedNode(); node == nil || node.Name() != "target" {
+		t.Fatalf("find jump selected = %v, want target", node)
+	}
+	applyReload(t, model, reload)
+
+	if node := model.selectedNode(); node == nil || node.Name() != "target" {
+		t.Fatalf("selection after the focus-return reload = %v, want target", node)
+	}
+}
+
 func newFindModel(t *testing.T, names ...string) (*Model, *fakeFileSystem) {
 	t.Helper()
 	root := t.TempDir()

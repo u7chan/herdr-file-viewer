@@ -329,6 +329,26 @@ func TestFocusReturnRefreshesTreeWithoutToast(t *testing.T) {
 	}
 }
 
+// Moving the cursor right after the tree regains focus must survive the
+// reload that the focus return started.
+func TestFocusReturnReloadKeepsTheRowMovedToByKeyboard(t *testing.T) {
+	root := t.TempDir()
+	fake := newStatusFileSystem()
+	fake.set(root, []filesystem.Entry{{Name: "a.txt", Mode: 0}, {Name: "b.txt", Mode: 0}})
+	model := NewModel(root, "", fake)
+	completeInitialLoad(t, model)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+
+	_, reload := model.Update(tea.FocusMsg{})
+	model.UpdateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	applyReload(t, model, reload)
+
+	if node := model.selectedNode(); node == nil || node.Name() != "b.txt" {
+		t.Fatalf("selection after the focus-return reload = %v, want b.txt", node)
+	}
+}
+
 func TestTreeContentWidthReservesLetterColumnPerRepository(t *testing.T) {
 	root := t.TempDir()
 	fake := newStatusFileSystem()
