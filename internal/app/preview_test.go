@@ -1292,7 +1292,7 @@ func TestPreviewRenderingStaysWithinCellWidth(t *testing.T) {
 	}
 }
 
-func TestPreviewCopySelectionWithoutSelectionShowsNoSelectionToast(t *testing.T) {
+func TestPreviewCopyWithoutSelectionCopiesStoredPath(t *testing.T) {
 	shortenPreviewToast(t)
 	reader := &fakePreviewReader{content: []byte("first\nsecond")}
 	model := NewPreviewModel("/abs/copy.txt", nil, "", reader)
@@ -1301,6 +1301,49 @@ func TestPreviewCopySelectionWithoutSelectionShowsNoSelectionToast(t *testing.T)
 	if !model.selection.empty() {
 		t.Fatalf("fresh model selection = %#v, want empty", model.selection)
 	}
+
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	copied, timeout := copyFeedback(t, cmd)
+	if copied != "/abs/copy.txt" {
+		t.Fatalf("copied text = %q, want the preview path %q", copied, "/abs/copy.txt")
+	}
+	if got := model.toast; got != previewCopyPathStatus {
+		t.Fatalf("toast = %q, want %q", got, previewCopyPathStatus)
+	}
+	if model.status != model.readyStatus() {
+		t.Fatalf("path copy changed persistent status to %q, want %q", model.status, model.readyStatus())
+	}
+	if !model.selection.empty() {
+		t.Fatalf("path copy changed selection to %#v, want kept empty", model.selection)
+	}
+
+	// The path toast uses the same timer as the text toast.
+	model.Update(timeout)
+	if model.toast != "" {
+		t.Fatalf("toast = %q, want cleared after timeout", model.toast)
+	}
+}
+
+func TestPreviewCopyPathFallbackAcceptsFullWidthSpace(t *testing.T) {
+	shortenPreviewToast(t)
+	reader := &fakePreviewReader{content: []byte("first\nsecond")}
+	model := NewPreviewModel("/abs/copy.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	_, cmd := model.Update(tea.KeyPressMsg{Code: '　', Text: "　"})
+	if got := clipboardText(t, cmd); got != "/abs/copy.txt" {
+		t.Fatalf("full-width space copied text = %q, want the preview path", got)
+	}
+	if got := model.toast; got != previewCopyPathStatus {
+		t.Fatalf("toast = %q, want %q", got, previewCopyPathStatus)
+	}
+}
+
+func TestPreviewCopyWithoutSelectionOrPathReportsNoSelection(t *testing.T) {
+	shortenPreviewToast(t)
+	model := NewPreviewModel("", nil, "")
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
 
 	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	if got := model.toast; got != previewNoSelectionStatus {
@@ -1312,7 +1355,7 @@ func TestPreviewCopySelectionWithoutSelectionShowsNoSelectionToast(t *testing.T)
 	// The only command is the toast timer; nothing is put on the clipboard.
 	timeout, ok := cmd().(previewToastTimeoutMsg)
 	if !ok {
-		t.Fatalf("space without selection command message = %T, want previewToastTimeoutMsg", cmd())
+		t.Fatalf("space without selection or path command message = %T, want previewToastTimeoutMsg", cmd())
 	}
 	model.Update(timeout)
 	if model.toast != "" {
@@ -1350,6 +1393,142 @@ func TestPreviewCopySelectionCommandsClipboardAndKeepsHighlight(t *testing.T) {
 	_, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	if got := clipboardText(t, cmd); got != "irst\nseco" {
 		t.Fatalf("second copy text = %q, want %q", got, "irst\nseco")
+	}
+}
+
+func TestPreviewCopySelectedTextTakesPriorityOverPathFallback(t *testing.T) {
+	shortenPreviewToast(t)
+	reader := &fakePreviewReader{content: []byte("a b\nc d")}
+	model := NewPreviewModel("/abs/copy.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	// Whitespace-only and newline-only selections are nonempty text, so they
+	// must not fall through to the path.
+	cases := []struct {
+		name      string
+		selection previewSelection
+		want      string
+		wantToast string
+	}{
+		{
+			name:      "whitespace only",
+			selection: previewSelection{anchor: previewPosition{line: 0, col: 1}, focus: previewPosition{line: 0, col: 2}},
+			want:      " ",
+			wantToast: "Copied 1 chars",
+		},
+		{
+			name:      "newline only",
+			selection: previewSelection{anchor: previewPosition{line: 0, col: 3}, focus: previewPosition{line: 1, col: 0}},
+			want:      "\n",
+			wantToast: "Copied 1 chars (2 lines)",
+		},
+	}
+	for _, tc := range cases {
+		model.selection = tc.selection
+		_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+		if got := clipboardText(t, cmd); got != tc.want {
+			t.Fatalf("%s copy = %q, want %q", tc.name, got, tc.want)
+		}
+		if model.toast != tc.wantToast {
+			t.Fatalf("%s toast = %q, want %q", tc.name, model.toast, tc.wantToast)
+		}
+	}
+
+	// A zero-length selection (equal endpoints) extracts no text and falls
+	// back to the path.
+	model.selection = previewSelection{anchor: previewPosition{line: 0, col: 1}, focus: previewPosition{line: 0, col: 1}}
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	if got := clipboardText(t, cmd); got != "/abs/copy.txt" {
+		t.Fatalf("zero-length selection copy = %q, want the preview path", got)
+	}
+	if model.toast != previewCopyPathStatus {
+		t.Fatalf("zero-length selection toast = %q, want %q", model.toast, previewCopyPathStatus)
+	}
+}
+
+func TestPreviewCopyAfterPlainClickTakesPathFallback(t *testing.T) {
+	shortenPreviewToast(t)
+	reader := &fakePreviewReader{content: []byte("first\nsecond")}
+	model := NewPreviewModel("/abs/click.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	// A press and release on one cell anchors a zero-length selection.
+	model.Update(tea.MouseClickMsg{X: model.contentStartX() + 2, Y: model.bodyStartY(), Button: tea.MouseLeft})
+	model.Update(tea.MouseReleaseMsg{X: model.contentStartX() + 2, Y: model.bodyStartY(), Button: tea.MouseLeft})
+	if !model.selection.empty() {
+		t.Fatalf("plain click selection = %#v, want empty", model.selection)
+	}
+
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	if got := clipboardText(t, cmd); got != "/abs/click.txt" {
+		t.Fatalf("click then space copy = %q, want the preview path", got)
+	}
+	if model.toast != previewCopyPathStatus {
+		t.Fatalf("toast = %q, want %q", model.toast, previewCopyPathStatus)
+	}
+}
+
+func TestPreviewCopyPathFallbackCopiesStoredPathVerbatim(t *testing.T) {
+	shortenPreviewToast(t)
+	path := "/abs/dir with space/\"quoted\"/日本語 .txt"
+	reader := &fakePreviewReader{content: []byte("text")}
+	model := NewPreviewModel(path, nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 60, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	if got := clipboardText(t, cmd); got != path {
+		t.Fatalf("copied path = %q, want verbatim %q", got, path)
+	}
+	if model.toast != previewCopyPathStatus {
+		t.Fatalf("toast = %q, want %q", model.toast, previewCopyPathStatus)
+	}
+	// The same stored string reached the reader; no quoting, normalization, or
+	// symlink resolution is inserted between the model and the clipboard.
+	if len(reader.calls) != 1 || reader.calls[0] != path {
+		t.Fatalf("reader calls = %q, want the stored path %q", reader.calls, path)
+	}
+}
+
+func TestPreviewCopyPathFallbackPreservesViewAndPersistentState(t *testing.T) {
+	shortenPreviewToast(t)
+	reader := &fakePreviewReader{content: []byte(strings.Repeat("alpha beta\n", 40))}
+	model := NewPreviewModel("/abs/state.txt", nil, "", reader)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	model.Update(previewLoadResult(t, model.Init()))
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: tea.KeyDown})
+	model.UpdateKeyPreview(tea.KeyPressMsg{Code: 'w', Text: "w"})
+
+	// A failed reload keeps the last content and records a warning; the path
+	// copy must not disturb the scroll, wrap, or persistent state either.
+	model.reader = &fakePreviewReader{err: errors.New("read failed")}
+	_, reload := model.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	if reload == nil {
+		t.Fatal("reload returned nil command")
+	}
+	model.Update(reload())
+	if model.offset == 0 || !model.wrap || model.warning == "" {
+		t.Fatalf("setup = offset %d wrap %v warning %q, want scrolled, wrapped, warned", model.offset, model.wrap, model.warning)
+	}
+
+	offset, wrap, warning, status := model.offset, model.wrap, model.warning, model.status
+	selection := model.selection
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	copied, timeout := copyFeedback(t, cmd)
+	if copied != "/abs/state.txt" {
+		t.Fatalf("copied text = %q, want the preview path", copied)
+	}
+	if model.offset != offset || model.wrap != wrap || model.warning != warning || model.status != status || model.selection != selection {
+		t.Fatalf("path copy changed view state: offset %d wrap %v warning %q status %q selection %#v",
+			model.offset, model.wrap, model.warning, model.status, model.selection)
+	}
+
+	// The toast expires through the existing timer and restores the footer.
+	model.Update(timeout)
+	if model.toast != "" {
+		t.Fatalf("toast = %q, want cleared after timeout", model.toast)
 	}
 }
 
@@ -1408,22 +1587,95 @@ func TestPreviewCopyStatusFormatsRuneAndLineCounts(t *testing.T) {
 	}
 }
 
-func TestPreviewCopyOnUnsupportedCategoryReportsNoSelection(t *testing.T) {
+func TestPreviewCopyPathFallbackCoversNonTextStates(t *testing.T) {
 	shortenPreviewToast(t)
-	reader := &fakePreviewReader{content: []byte("PK\x03\x04")}
-	model := NewPreviewModel("/abs/bundle.zip", nil, "", reader)
-	model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
-	model.Update(previewLoadResult(t, model.Init()))
+	failure := func() *fakePreviewReader { return &fakePreviewReader{err: errors.New("read failed")} }
+	cases := []struct {
+		name    string
+		file    string
+		reader  *fakePreviewReader
+		prepare func(t testing.TB, model *PreviewModel)
+	}{
+		{
+			name:   "empty file",
+			file:   "/abs/empty.txt",
+			reader: &fakePreviewReader{content: []byte{}},
+			prepare: func(t testing.TB, model *PreviewModel) {
+				model.Update(previewLoadResult(t, model.Init()))
+			},
+		},
+		{
+			name:   "unsupported binary",
+			file:   "/abs/bundle.zip",
+			reader: &fakePreviewReader{content: []byte("PK\x03\x04")},
+			prepare: func(t testing.TB, model *PreviewModel) {
+				model.Update(previewLoadResult(t, model.Init()))
+			},
+		},
+		{
+			name:   "initial loading",
+			file:   "/abs/slow.txt",
+			reader: &fakePreviewReader{content: []byte("first\nsecond")},
+			prepare: func(t testing.TB, model *PreviewModel) {
+				if !model.loading {
+					t.Fatal("preview is not loading before the load result is applied")
+				}
+			},
+		},
+		{
+			name:   "initial read failure",
+			file:   "/abs/missing.txt",
+			reader: failure(),
+			prepare: func(t testing.TB, model *PreviewModel) {
+				model.Update(previewLoadResult(t, model.Init()))
+				if model.warning == "" {
+					t.Fatal("failed initial read left no warning")
+				}
+			},
+		},
+		{
+			name:   "reload failure after a successful load",
+			file:   "/abs/deleted.txt",
+			reader: &fakePreviewReader{content: []byte("first\nsecond")},
+			prepare: func(t testing.TB, model *PreviewModel) {
+				model.Update(previewLoadResult(t, model.Init()))
+				model.reader = failure()
+				_, cmd := model.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+				if cmd == nil {
+					t.Fatal("reload returned nil command")
+				}
+				model.Update(cmd())
+				if model.warning == "" {
+					t.Fatal("failed reload left no warning")
+				}
+				if len(model.lines) == 0 {
+					t.Fatal("failed reload dropped the last displayed content")
+				}
+			},
+		},
+	}
 
-	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	if got := model.toast; got != previewNoSelectionStatus {
-		t.Fatalf("toast = %q, want %q", got, previewNoSelectionStatus)
-	}
-	if model.status != model.readyStatus() {
-		t.Fatalf("unsupported copy changed persistent status to %q, want %q", model.status, model.readyStatus())
-	}
-	if _, ok := cmd().(previewToastTimeoutMsg); !ok {
-		t.Fatalf("space on unsupported category command message = %T, want previewToastTimeoutMsg", cmd())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			model := NewPreviewModel(tc.file, nil, "", tc.reader)
+			model.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+			tc.prepare(t, model)
+			status := model.status
+
+			_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+			if got := clipboardText(t, cmd); got != tc.file {
+				t.Fatalf("copied text = %q, want the preview path %q", got, tc.file)
+			}
+			if got := model.toast; got != previewCopyPathStatus {
+				t.Fatalf("toast = %q, want %q", got, previewCopyPathStatus)
+			}
+			if model.status != status {
+				t.Fatalf("path copy changed persistent status from %q to %q", status, model.status)
+			}
+			if !model.selection.empty() {
+				t.Fatalf("path copy changed selection to %#v, want kept empty", model.selection)
+			}
+		})
 	}
 }
 
@@ -1552,7 +1804,9 @@ func shortenPreviewToast(t testing.TB) {
 }
 
 // copyMessages executes a copy command and returns every produced message,
-// unwrapping the toast/clipboard batch.
+// unwrapping the toast/clipboard batch. A command builds its toast timer when
+// it is created and that timer can receive only once, so callers must read
+// everything they need from a single execution.
 func copyMessages(t testing.TB, cmd tea.Cmd) []tea.Msg {
 	t.Helper()
 	if cmd == nil {
@@ -1581,6 +1835,32 @@ func toastTimeoutOf(t testing.TB, cmd tea.Cmd) previewToastTimeoutMsg {
 	}
 	t.Fatalf("copy command produced no toast timer: %v", cmd())
 	return previewToastTimeoutMsg{}
+}
+
+// copyFeedback runs a copy command once and returns both the clipboard payload
+// and the toast timer it batched. Tests that need both must use this instead of
+// clipboardText followed by toastTimeoutOf, which would run the same timer
+// command twice and block on the already drained tick channel.
+func copyFeedback(t testing.TB, cmd tea.Cmd) (string, previewToastTimeoutMsg) {
+	t.Helper()
+	var (
+		text    string
+		timeout previewToastTimeoutMsg
+		found   bool
+	)
+	for _, message := range copyMessages(t, cmd) {
+		if value := reflect.ValueOf(message); value.Kind() == reflect.String {
+			text, found = value.String(), true
+			continue
+		}
+		if tick, ok := message.(previewToastTimeoutMsg); ok {
+			timeout = tick
+		}
+	}
+	if !found {
+		t.Fatalf("copy command produced no clipboard message: %v", cmd)
+	}
+	return text, timeout
 }
 
 // clipboardText runs a clipboard command and returns the copied text.

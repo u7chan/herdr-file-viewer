@@ -78,7 +78,7 @@ var helpPreviewRows = []helpEntry{
 	{keys: "w", label: "wrap"},
 	{keys: "s", label: "spaces"},
 	{keys: "r", label: "reload"},
-	{keys: "space", label: "copy selection"},
+	{keys: "space", label: "copy selection or path"},
 	{keys: "mouse", label: "drag select / wheel / scrollbar"},
 	{keys: "q / Ctrl+C", label: "close"},
 }

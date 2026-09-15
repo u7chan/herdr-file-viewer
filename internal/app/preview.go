@@ -39,6 +39,7 @@ const (
 	previewHelpCloseKey              = "q"
 	previewHelpCloseLabel            = "close"
 	previewNoSelectionStatus         = "No selection"
+	previewCopyPathStatus            = "Copied path"
 	previewHighlightSkippedStatus    = "Syntax highlighting skipped (large file)"
 	previewUnsupportedPrefix         = "Unsupported preview: "
 	previewGutterDividerGlyph        = "│"
@@ -661,17 +662,26 @@ func (m *PreviewModel) requestHelp() tea.Cmd {
 	}
 }
 
-// copySelection extracts the selection into a clipboard command. An empty
-// selection only shows a toast; the highlight is kept either way so a copy
-// that did happen stays visible and can be re-issued with space.
+// copySelection extracts the selection into a clipboard command. Without
+// selected text it falls back to the stored preview path, which can differ
+// from the tree selection after navigation or a root move; the path is copied
+// verbatim because a preview that never loaded successfully still owns it.
+// The highlight is kept whenever text was copied so a copy that did happen
+// stays visible and can be re-issued with space.
 func (m *PreviewModel) copySelection() tea.Cmd {
 	text := extractSelection(m.lines, m.selection)
-	if text == "" {
+	if text != "" {
+		return tea.Batch(
+			m.showToast(previewCopyStatus(text, m.selection)),
+			tea.SetClipboard(text),
+		)
+	}
+	if m.file == "" {
 		return m.showToast(previewNoSelectionStatus)
 	}
 	return tea.Batch(
-		m.showToast(previewCopyStatus(text, m.selection)),
-		tea.SetClipboard(text),
+		m.showToast(previewCopyPathStatus),
+		tea.SetClipboard(m.file),
 	)
 }
 
