@@ -246,7 +246,7 @@ func TestHelpModelRendersContextSpecificOperations(t *testing.T) {
 		"horizontal scroll",
 		"wrap",
 		"spaces",
-		"copy selection",
+		"copy selection or path",
 		"close",
 		"q / Ctrl+C",
 	} {

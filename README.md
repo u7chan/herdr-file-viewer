@@ -24,8 +24,9 @@ status snapshot, OSC 52 path copying, and a Help popup. `Enter` opens a
 focused text preview pane with line numbers, syntax highlighting for
 recognized source, configuration, and markup filenames (files without a
 matching lexer remain plain text), wrap and space-visualization toggles, mouse
-text selection with OSC 52 copy, horizontal scrolling, and manual reload. On a
-file or folder, `Ctrl+Enter` runs the corresponding configured default action
+text selection with OSC 52 copy that falls back to the previewed path,
+horizontal scrolling, and manual reload. On a file or folder, `Ctrl+Enter`
+runs the corresponding configured default action
 (`actions.file` / `actions.folder` from `preferences.json`) in the user's
 interactive shell, detached from the TUI. Eligible Files and
 Preview panes are restored in place after a Herdr session restore; a
@@ -322,8 +323,8 @@ reference: the popup opened from the tree lists the tree operations
 (movement, page moves, expand/collapse, root move, preview, default
 actions, find, reload, copy, mouse and scrollbar, quit); the popup opened
 from the preview lists the preview operations (vertical and horizontal
-scrolling, wrap, spaces, reload, selection copy, mouse and scrollbars,
-close). The tree reference gains one `Ctrl+Enter` row per configured
+scrolling, wrap, spaces, reload, selection or path copy, mouse and
+scrollbars, close). The tree reference gains one `Ctrl+Enter` row per configured
 default action, positioned after the preview row; with the action unset
 its row is omitted entirely (both the none-for-file and none-for-folder
 cases). The caller context travels in the `HERDR_HELP_CONTEXT` environment
@@ -395,10 +396,18 @@ Scrolling in the preview:
 - `space`: copy the selected text to the clipboard (OSC 52), with the same
   terminal limitations as the tree's `space` path copy. A brief toast in the
   footer row reports `Copied N chars` (single line) or `Copied N chars (M
-  lines)` across lines, where N is the rune count and M the line count; with
-  no selection it shows `No selection` and copies nothing. The toast
-  disappears after a few seconds and the help row returns. The highlight
-  stays after copying so `space` can be pressed again to re-copy. Toggling
+  lines)` across lines, where N is the rune count and M the line count. When
+  no text is selected, `space` falls back to copying the previewed file's
+  stored path verbatim and shows `Copied path`; the path is what the preview
+  holds, so it is copied without checking existence, reading the filesystem,
+  resolving symlinks, or adding quoting, and it can differ from the current
+  tree selection after navigation or a root move. Empty files, unsupported
+  and binary previews, a preview that is still loading, and a failed initial
+  or manual reload all take that same path fallback, because it does not
+  depend on the displayed content. Only an unset preview path shows `No
+  selection` and copies nothing. Both toasts disappear after a few seconds
+  and the help row returns. The highlight stays after copying so `space` can
+  be pressed again to re-copy. Toggling
   `w` still clears the selection as described above, so select the text again
   before copying; horizontal scrolling keeps it. Because the selection is
   kept in original line coordinates, the same selected content produces the
