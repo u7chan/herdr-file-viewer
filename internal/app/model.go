@@ -116,6 +116,10 @@ type Model struct {
 	// iconBaseSet is the resolved base glyph set for the three basic tree
 	// icons (closed folder, open folder, unknown file).
 	iconBaseSet treeIconSet
+	// treePermissions is the resolved tree.permissions preference. The pane
+	// width can still drop the column, so rendering asks for the effective
+	// width per frame.
+	treePermissions treePermissionMode
 	// preferencesWarning is the startup toast for a rejected
 	// preferences.json; empty means the document loaded cleanly or was
 	// absent (a normal first run).
@@ -202,9 +206,24 @@ func NewModelWithPreview(root, warning string, preview PreviewConfig, fileSystem
 // activation, the help popup pane, and the cwd sync behind root moves. A zero
 // config keeps all three capabilities no-ops.
 func NewModelConfigured(root, warning string, config ModelConfig, fileSystems ...filesystem.FileSystem) *Model {
-	fileSystem := filesystem.FileSystem(filesystem.NewLocal())
+	treePermissions := treePermissionModeForName(config.Preferences.TreePermissions)
+	localReader := filesystem.NewLocal()
+	if treePermissions != treePermissionsOff {
+		// The permission column is the only consumer of lstat metadata, so
+		// the cheaper reader stays in place when the column is off.
+		localReader = filesystem.NewLocalWithPermissions()
+	}
+	fileSystem := filesystem.FileSystem(localReader)
 	if len(fileSystems) > 0 && fileSystems[0] != nil {
 		fileSystem = fileSystems[0]
+	}
+	if treePermissions != treePermissionsOff {
+		// A reader without lstat metadata would only reserve blank cells, so
+		// the column follows the reader capability, not the preference alone.
+		reader, ok := fileSystem.(filesystem.PermissionReader)
+		if !ok || !reader.ReadsPermissions() {
+			treePermissions = treePermissionsOff
+		}
 	}
 
 	m := &Model{
@@ -217,6 +236,7 @@ func NewModelConfigured(root, warning string, config ModelConfig, fileSystems ..
 		preferencesWarning:  sanitizeDisplay(config.PreferencesWarning),
 		actions:             config.Preferences.Actions,
 		defaultActionRunner: config.DefaultAction,
+		treePermissions:     treePermissions,
 	}
 	m.lightBackground, m.appearanceFixed = resolveAppearance(config.Preferences.AppearanceMode)
 	m.iconBaseSet = iconBaseSetForName(config.Preferences.IconBaseSet)
@@ -1321,16 +1341,18 @@ func (m *Model) renderRowWidth(index int, row browser.VisibleRow, width int) str
 		}
 		name = " " + name
 	}
-	return m.renderTreeRow(index, prefix, icon, name, status, ignored, width)
+	return m.renderTreeRow(index, prefix, icon, name, permissionText(row.Node, m.permissionBlockWidth(width)), status, ignored, width)
 }
 
 // renderTreeRow paints a tree line as separate spans so the icon keeps its
 // palette color while the name follows the Git status and selection styles.
 // Spans are styled individually because an inner reset inside a single styled
 // span would drop the surrounding colors for the rest of the line. An ignored
-// row greys out the icon and name; the trailing letter column is rendered
-// whenever the repository reserves it, even for statusless rows.
-func (m *Model) renderTreeRow(index int, prefix, icon, name string, status browser.GitStatus, ignored bool, width int) string {
+// row greys out the icon, name, and permission column; the trailing letter
+// column is rendered whenever the repository reserves it, even for statusless
+// rows. permText is already padded to its block width and is rendered before
+// the letter column, so the octal digits line up at the row's right edge.
+func (m *Model) renderTreeRow(index int, prefix, icon, name, permText string, status browser.GitStatus, ignored bool, width int) string {
 	selectionStyle := selectedStyle(m.lightBackground)
 	rowStyle := lipgloss.NewStyle().Inline(true)
 	if index == m.selected {
@@ -1350,9 +1372,11 @@ func (m *Model) renderTreeRow(index int, prefix, icon, name string, status brows
 		nameStyle = nameStyle.Background(selectionBackground)
 	}
 
-	prefix = truncateToWidth(prefix, width)
+	permWidth := lipgloss.Width(permText)
+	nameWidth := max(0, width-permWidth)
+	prefix = truncateToWidth(prefix, nameWidth)
 	prefixWidth := lipgloss.Width(prefix)
-	budget := width - prefixWidth
+	budget := nameWidth - prefixWidth
 	if lipgloss.Width(icon) > budget {
 		// The prefix alone fills the row, so the icon and name cannot fit.
 		icon = ""
@@ -1360,9 +1384,19 @@ func (m *Model) renderTreeRow(index int, prefix, icon, name string, status brows
 	}
 
 	rendered := rowStyle.Render(prefix) + iconSpan.Render(icon) + m.renderFindName(index, name, nameStyle)
-	rendered = truncateToWidth(rendered, width)
-	if padding := width - lipgloss.Width(rendered); padding > 0 {
+	rendered = truncateToWidth(rendered, nameWidth)
+	if padding := nameWidth - lipgloss.Width(rendered); padding > 0 {
 		rendered += rowStyle.Render(strings.Repeat(" ", padding))
+	}
+	if permWidth > 0 {
+		permissionSpan := permissionStyle(m.lightBackground)
+		if ignored {
+			permissionSpan = ignoredRowStyle
+		}
+		if index == m.selected {
+			permissionSpan = permissionSpan.Background(selectionStyle.GetBackground())
+		}
+		rendered += permissionSpan.Render(permText)
 	}
 
 	letterSpan := gitStatusStyle(status)

@@ -23,6 +23,7 @@ const preferencesFileName = "preferences.json"
 type Preferences struct {
 	AppearanceMode        string // "auto", "light", or "dark"; defaults to "auto"
 	IconBaseSet           string // one of the four basic icon set names; defaults to "font-awesome-solid"
+	TreePermissions       string // "off", "numeric", or "full"; defaults to "full"
 	PreviewWrap           bool
 	PreviewShowWhitespace bool
 	// ActionFile and ActionFolder are the configured per-type default
@@ -42,6 +43,11 @@ const (
 	iconBaseSetOutline  = "font-awesome-outline"
 	iconBaseSetMaterial = "material"
 	iconBaseSetCodicon  = "codicon"
+
+	defaultTreePermissions = "full"
+	treePermissionsOff     = "off"
+	treePermissionsNumeric = "numeric"
+	treePermissionsFull    = "full"
 )
 
 // preferencesDoc mirrors the JSON document. Unknown keys and sections are
@@ -51,6 +57,7 @@ const (
 type preferencesDoc struct {
 	Appearance appearanceDoc `json:"appearance"`
 	Icons      iconsDoc      `json:"icons"`
+	Tree       treeDoc       `json:"tree"`
 	Preview    previewDoc    `json:"preview"`
 	Actions    actionsDoc    `json:"actions"`
 }
@@ -61,6 +68,10 @@ type appearanceDoc struct {
 
 type iconsDoc struct {
 	BaseSet string `json:"base_set"`
+}
+
+type treeDoc struct {
+	Permissions string `json:"permissions"`
 }
 
 type previewDoc struct {
@@ -126,19 +137,22 @@ func (s *PreferencesStore) Load() (Preferences, error) {
 
 func preferencesDefaults() Preferences {
 	return Preferences{
-		AppearanceMode: defaultAppearanceMode,
-		IconBaseSet:    defaultIconBaseSet,
+		AppearanceMode:  defaultAppearanceMode,
+		IconBaseSet:     defaultIconBaseSet,
+		TreePermissions: defaultTreePermissions,
 	}
 }
 
 // defaultPreferencesDoc is the document written on first run. The preview
 // toggles are emitted as explicit false values and the action strings as
 // explicit empty values so the created file shows every key a user can
-// edit; either representation resolves to the same defaults.
+// edit; either representation resolves to the same defaults. Enum keys are
+// written with their resolved default so the created file is self-describing.
 func defaultPreferencesDoc() preferencesDoc {
 	return preferencesDoc{
 		Appearance: appearanceDoc{Mode: defaultAppearanceMode},
 		Icons:      iconsDoc{BaseSet: defaultIconBaseSet},
+		Tree:       treeDoc{Permissions: defaultTreePermissions},
 	}
 }
 
@@ -157,9 +171,17 @@ func (d preferencesDoc) resolve() (Preferences, error) {
 		return Preferences{}, fmt.Errorf("invalid icons.base_set %q", baseSet)
 	}
 
+	permissions := d.Tree.Permissions
+	if permissions == "" {
+		permissions = defaultTreePermissions
+	} else if !validTreePermissions(permissions) {
+		return Preferences{}, fmt.Errorf("invalid tree.permissions %q", permissions)
+	}
+
 	return Preferences{
 		AppearanceMode:        mode,
 		IconBaseSet:           baseSet,
+		TreePermissions:       permissions,
 		PreviewWrap:           d.Preview.Wrap,
 		PreviewShowWhitespace: d.Preview.ShowWhitespace,
 		ActionFile:            d.Actions.File,
@@ -178,6 +200,14 @@ func validAppearanceMode(mode string) bool {
 func validIconBaseSet(name string) bool {
 	switch name {
 	case defaultIconBaseSet, iconBaseSetOutline, iconBaseSetMaterial, iconBaseSetCodicon:
+		return true
+	}
+	return false
+}
+
+func validTreePermissions(value string) bool {
+	switch value {
+	case treePermissionsOff, treePermissionsNumeric, treePermissionsFull:
 		return true
 	}
 	return false

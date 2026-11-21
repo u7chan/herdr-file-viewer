@@ -23,7 +23,7 @@ func TestPreferencesStoreLoadCreatesDefaultsWhenFileIsMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v, want nil for a missing file (first run)", err)
 	}
-	want := Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}
+	want := Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full"}
 	if prefs != want {
 		t.Fatalf("Load() = %#v, want defaults %#v", prefs, want)
 	}
@@ -50,7 +50,7 @@ func TestPreferencesStoreLoadRejectsFailedFirstRunCreation(t *testing.T) {
 	if err == nil {
 		t.Fatal("Load() error = nil, want rejection when the default document cannot be created")
 	}
-	if prefs != (Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}) {
+	if prefs != (Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full"}) {
 		t.Fatalf("Load() = %#v, want defaults on failed creation", prefs)
 	}
 }
@@ -101,7 +101,7 @@ func TestPreferencesStoreLoadTreatsMissingOrEmptyActionsAsUnset(t *testing.T) {
 				}
 				return
 			}
-			want := Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}
+			want := Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full"}
 			if prefs != want {
 				t.Fatalf("Load() = %#v, want %#v (missing/empty actions are never an error)", prefs, want)
 			}
@@ -167,6 +167,7 @@ func TestPreferencesStoreLoadResolvesEverySection(t *testing.T) {
 	want := Preferences{
 		AppearanceMode:        "light",
 		IconBaseSet:           "material",
+		TreePermissions:       "full",
 		PreviewWrap:           true,
 		PreviewShowWhitespace: true,
 	}
@@ -182,7 +183,7 @@ func TestPreferencesStoreLoadTreatsEmptyDocumentAsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	want := Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}
+	want := Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full"}
 	if prefs != want {
 		t.Fatalf("Load() = %#v, want defaults %#v", prefs, want)
 	}
@@ -199,7 +200,7 @@ func TestPreferencesStoreLoadMapsEmptyStringsToDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	want := Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", PreviewWrap: true}
+	want := Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full", PreviewWrap: true}
 	if prefs != want {
 		t.Fatalf("Load() = %#v, want %#v", prefs, want)
 	}
@@ -212,7 +213,7 @@ func TestPreferencesStoreLoadIgnoresNullSections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	want := Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}
+	want := Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full"}
 	if prefs != want {
 		t.Fatalf("Load() = %#v, want defaults %#v", prefs, want)
 	}
@@ -225,7 +226,7 @@ func TestPreferencesStoreLoadRejectsSyntaxErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("Load() error = nil, want rejection of invalid JSON")
 	}
-	if prefs != (Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}) {
+	if prefs != (Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full"}) {
 		t.Fatalf("Load() = %#v, want defaults on rejection", prefs)
 	}
 }
@@ -249,7 +250,7 @@ func TestPreferencesStoreLoadRejectsWrongTypes(t *testing.T) {
 			if err == nil {
 				t.Fatal("Load() error = nil, want rejection of wrong type")
 			}
-			if prefs != (Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}) {
+			if prefs != (Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full"}) {
 				t.Fatalf("Load() = %#v, want defaults on rejection", prefs)
 			}
 		})
@@ -269,7 +270,7 @@ func TestPreferencesStoreLoadRejectsUnknownEnumValues(t *testing.T) {
 			if err == nil {
 				t.Fatal("Load() error = nil, want rejection of unknown enum value")
 			}
-			if prefs != (Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}) {
+			if prefs != (Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full"}) {
 				t.Fatalf("Load() = %#v, want defaults on rejection", prefs)
 			}
 		})
@@ -285,7 +286,7 @@ func TestPreferencesStoreLoadRejectsUnreadableFile(t *testing.T) {
 	if err == nil {
 		t.Fatal("Load() error = nil, want rejection of an unreadable file")
 	}
-	if prefs != (Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}) {
+	if prefs != (Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full"}) {
 		t.Fatalf("Load() = %#v, want defaults on rejection", prefs)
 	}
 }
@@ -296,7 +297,7 @@ func TestPreferencesStoreDetachedNeverReadsOrWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if prefs != (Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}) {
+	if prefs != (Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full"}) {
 		t.Fatalf("Load() = %#v, want defaults", prefs)
 	}
 	if err := store.SavePreviewWrap(true); err != nil {
@@ -326,6 +327,7 @@ func TestPreferencesStoreSavePreviewWrapCreatesTheFileAndMergesOnlyTheChangedKey
 	want := Preferences{
 		AppearanceMode:        "dark",
 		IconBaseSet:           "codicon",
+		TreePermissions:       "full",
 		PreviewWrap:           true,
 		PreviewShowWhitespace: true,
 	}
@@ -357,6 +359,7 @@ func TestPreferencesStoreSavePreviewWhitespaceCreatesFileWhenMissing(t *testing.
 	want := Preferences{
 		AppearanceMode:        "auto",
 		IconBaseSet:           "font-awesome-solid",
+		TreePermissions:       "full",
 		PreviewShowWhitespace: true,
 	}
 	if prefs != want {
@@ -377,5 +380,86 @@ func TestPreferencesStoreSaveReplacesABrokenFileWithAValidDocument(t *testing.T)
 	}
 	if !prefs.PreviewWrap {
 		t.Fatalf("Load() after save = %#v, want wrap true", prefs)
+	}
+}
+
+func TestPreferencesStoreLoadResolvesTreePermissions(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "defaults", content: `{}`, want: defaultTreePermissions},
+		{name: "off", content: `{"tree": {"permissions": "off"}}`, want: "off"},
+		{name: "numeric", content: `{"tree": {"permissions": "numeric"}}`, want: "numeric"},
+		{name: "full", content: `{"tree": {"permissions": "full"}}`, want: "full"},
+		{name: "empty value", content: `{"tree": {"permissions": ""}}`, want: defaultTreePermissions},
+		{name: "null section", content: `{"tree": null}`, want: defaultTreePermissions},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			configDir := t.TempDir()
+			writePreferences(t, configDir, test.content)
+			prefs, err := NewPreferencesStore(configDir).Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if prefs.TreePermissions != test.want {
+				t.Fatalf("TreePermissions = %q, want %q", prefs.TreePermissions, test.want)
+			}
+		})
+	}
+}
+
+func TestPreferencesStoreLoadDefaultsTheTreeSectionOnFirstRun(t *testing.T) {
+	configDir := t.TempDir()
+	if _, err := NewPreferencesStore(configDir).Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(configDir, preferencesFileName))
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", preferencesFileName, err)
+	}
+	var doc preferencesDoc
+	if err := json.Unmarshal(content, &doc); err != nil {
+		t.Fatalf("created %s = %q is not valid JSON: %v", preferencesFileName, content, err)
+	}
+	if doc.Tree.Permissions != defaultTreePermissions {
+		t.Fatalf("created tree section = %#v, want permissions %q", doc.Tree, defaultTreePermissions)
+	}
+}
+
+func TestPreferencesStoreRejectsInvalidTreePermissions(t *testing.T) {
+	configDir := t.TempDir()
+	writePreferences(t, configDir, `{
+		"appearance": {"mode": "light"},
+		"tree": {"permissions": "everything"}
+	}`)
+	prefs, err := NewPreferencesStore(configDir).Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want a rejected document for an unknown tree.permissions value")
+	}
+	want := Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: defaultTreePermissions}
+	if prefs != want {
+		t.Fatalf("Load() = %#v, want the whole document rejected to defaults %#v", prefs, want)
+	}
+}
+
+func TestPreferencesStoreSavePreviewKeepsHandEditedTreeSection(t *testing.T) {
+	configDir := t.TempDir()
+	writePreferences(t, configDir, `{
+		"appearance": {"mode": "dark"},
+		"tree": {"permissions": "numeric"}
+	}`)
+	store := NewPreferencesStore(configDir)
+	if err := store.SavePreviewWrap(true); err != nil {
+		t.Fatalf("SavePreviewWrap() error = %v", err)
+	}
+	prefs, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if prefs.TreePermissions != "numeric" || !prefs.PreviewWrap || prefs.AppearanceMode != "dark" {
+		t.Fatalf("Load() after save = %#v, want the hand-edited tree.permissions and appearance kept", prefs)
 	}
 }

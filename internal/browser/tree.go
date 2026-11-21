@@ -404,7 +404,12 @@ func (t *Tree) ApplyLoad(result LoadResult) bool {
 		path := filepath.Join(node.path, entry.Name)
 		child := previous[path]
 		if child == nil || child.kind != kind {
-			child = newChildNode(node, path, entry.Name, kind)
+			child = newChildNode(node, path, entry.Name, kind, entry.Perm, entry.HasPerm)
+		} else {
+			// A reused node keeps its expansion state, so the permission
+			// snapshot is refreshed here; otherwise a chmod would only show
+			// up after the node was discarded.
+			child.setPermissions(entry.Perm, entry.HasPerm)
 		}
 		children = append(children, child)
 	}

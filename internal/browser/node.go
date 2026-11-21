@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"io/fs"
 	"path/filepath"
 	"slices"
 )
@@ -20,6 +21,8 @@ type Node struct {
 	path      string
 	name      string
 	kind      NodeKind
+	perm      fs.FileMode
+	hasPerm   bool
 	parent    *Node
 	children  []*Node
 	expanded  bool
@@ -36,12 +39,14 @@ func newRootNode(path string) *Node {
 	}
 }
 
-func newChildNode(parent *Node, path, name string, kind NodeKind) *Node {
+func newChildNode(parent *Node, path, name string, kind NodeKind, perm fs.FileMode, hasPerm bool) *Node {
 	return &Node{
-		path:   path,
-		name:   name,
-		kind:   kind,
-		parent: parent,
+		path:    path,
+		name:    name,
+		kind:    kind,
+		perm:    perm,
+		hasPerm: hasPerm,
+		parent:  parent,
 	}
 }
 
@@ -78,6 +83,24 @@ func (n *Node) IsDirectory() bool {
 // IsSymlink reports whether the node is a symbolic link.
 func (n *Node) IsSymlink() bool {
 	return n != nil && n.kind == KindSymlink
+}
+
+// Permissions returns the entry's own lstat mode and whether the directory
+// read provided it. A symlink reports the link, never its target. The sticky
+// root node has no permission bits of its own.
+func (n *Node) Permissions() (fs.FileMode, bool) {
+	if n == nil {
+		return 0, false
+	}
+	return n.perm, n.hasPerm
+}
+
+func (n *Node) setPermissions(perm fs.FileMode, hasPerm bool) {
+	if n == nil {
+		return
+	}
+	n.perm = perm
+	n.hasPerm = hasPerm
 }
 
 // Parent returns the parent node, or nil for the root.

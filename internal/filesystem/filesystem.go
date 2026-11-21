@@ -15,6 +15,11 @@ import (
 type Entry struct {
 	Name string
 	Mode fs.FileMode
+	// Perm is the entry's own lstat mode (type, permission, and special
+	// bits) when HasPerm is set. Symlinks report the link itself, and a
+	// failed lstat leaves both fields at their zero values.
+	Perm    fs.FileMode
+	HasPerm bool
 }
 
 // IsDirectory reports whether the entry itself is a directory. Symlinks are
@@ -34,6 +39,13 @@ type FileSystem interface {
 	ReadDir(path string) ([]Entry, error)
 }
 
+// PermissionReader is the optional FileSystem capability that fills Entry's
+// permission fields. A reader without it leaves every row's column blank, so
+// the tree hides the column instead of reserving empty cells.
+type PermissionReader interface {
+	ReadsPermissions() bool
+}
+
 // FileReader reads the head of one file without loading the whole file. It
 // is the preview's bounded counterpart to FileSystem: the caller decides how
 // many bytes are interesting and learns whether the file continues beyond
@@ -43,15 +55,32 @@ type FileReader interface {
 }
 
 // Local reads directories through the operating system filesystem.
-type Local struct{}
+type Local struct {
+	// permissions adds one lstat per entry so Entry.Perm is filled.
+	permissions bool
+}
 
-// NewLocal constructs the standard-library filesystem adapter.
+// NewLocal constructs the standard-library filesystem adapter. It reports
+// only the directory-entry type bits, which is all the tree's structure
+// needs and costs no per-entry syscall.
 func NewLocal() Local {
 	return Local{}
 }
 
+// NewLocalWithPermissions constructs the adapter with per-entry permissions.
+// Every directory read costs one extra lstat per entry, so a caller that
+// never displays permissions keeps NewLocal instead.
+func NewLocalWithPermissions() Local {
+	return Local{permissions: true}
+}
+
+// ReadsPermissions reports whether ReadDir fills Entry.Perm and Entry.HasPerm.
+func (l Local) ReadsPermissions() bool {
+	return l.permissions
+}
+
 // ReadDir reads one directory without following symlinks in its entries.
-func (Local) ReadDir(path string) ([]Entry, error) {
+func (l Local) ReadDir(path string) ([]Entry, error) {
 	directory, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
@@ -59,10 +88,19 @@ func (Local) ReadDir(path string) ([]Entry, error) {
 
 	entries := make([]Entry, 0, len(directory))
 	for _, entry := range directory {
-		entries = append(entries, Entry{
+		item := Entry{
 			Name: entry.Name(),
 			Mode: entry.Type(),
-		})
+		}
+		if l.permissions {
+			// One unreadable entry must not fail the whole read: the row
+			// keeps its name and shows the permission column blank.
+			if info, infoErr := entry.Info(); infoErr == nil {
+				item.Perm = info.Mode()
+				item.HasPerm = true
+			}
+		}
+		entries = append(entries, item)
 	}
 	return entries, nil
 }

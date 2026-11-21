@@ -35,13 +35,13 @@ func TestInitRequestsBackgroundColorForTreeAndPreview(t *testing.T) {
 func TestTreeSelectionBackgroundDefaultsDarkAndAdaptsToTerminal(t *testing.T) {
 	model := Model{selected: 0}
 
-	assertContainsBackground(t, model.renderTreeRow(0, "", "icon", "file", 0, false, 20), "238")
+	assertContainsBackground(t, model.renderTreeRow(0, "", "icon", "file", "", 0, false, 20), "238")
 
 	model.Update(tea.BackgroundColorMsg{Color: color.RGBA{R: 255, G: 255, B: 255, A: 255}})
-	assertContainsBackground(t, model.renderTreeRow(0, "", "icon", "file", 0, false, 20), "254")
+	assertContainsBackground(t, model.renderTreeRow(0, "", "icon", "file", "", 0, false, 20), "254")
 
 	model.Update(tea.BackgroundColorMsg{Color: color.RGBA{A: 255}})
-	assertContainsBackground(t, model.renderTreeRow(0, "", "icon", "file", 0, false, 20), "238")
+	assertContainsBackground(t, model.renderTreeRow(0, "", "icon", "file", "", 0, false, 20), "238")
 }
 
 func TestPreviewSelectionBackgroundDefaultsDarkAndAdaptsToTerminal(t *testing.T) {

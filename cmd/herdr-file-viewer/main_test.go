@@ -269,7 +269,7 @@ func TestLoadPreferencesCreatesDefaultFileOnFirstRun(t *testing.T) {
 	t.Setenv(herdr.PluginConfigDirEnv, configDir)
 
 	prefs, warning := loadPreferences()
-	want := herdr.Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}
+	want := herdr.Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full"}
 	if prefs != want {
 		t.Fatalf("loadPreferences() = %#v, want defaults %#v on first run", prefs, want)
 	}
@@ -289,7 +289,7 @@ func TestLoadPreferencesWarnsWhenDefaultFileCreationFails(t *testing.T) {
 	t.Setenv(herdr.PluginConfigDirEnv, filepath.Join(blocker, "sub"))
 
 	prefs, warning := loadPreferences()
-	want := herdr.Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}
+	want := herdr.Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full"}
 	if prefs != want {
 		t.Fatalf("loadPreferences() = %#v, want defaults %#v when creation fails", prefs, want)
 	}
@@ -306,7 +306,7 @@ func TestLoadPreferencesFallsBackToDefaultsWithWarningOnRejectedFile(t *testing.
 	t.Setenv(herdr.PluginConfigDirEnv, configDir)
 
 	prefs, warning := loadPreferences()
-	want := herdr.Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}
+	want := herdr.Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full"}
 	if prefs != want {
 		t.Fatalf("loadPreferences() = %#v, want defaults %#v on rejection", prefs, want)
 	}
@@ -319,7 +319,7 @@ func TestLoadPreferencesIsDetachedWithoutConfigDir(t *testing.T) {
 	t.Setenv(herdr.PluginConfigDirEnv, "")
 
 	prefs, warning := loadPreferences()
-	want := herdr.Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid"}
+	want := herdr.Preferences{AppearanceMode: "auto", IconBaseSet: "font-awesome-solid", TreePermissions: "full"}
 	if prefs != want {
 		t.Fatalf("loadPreferences() = %#v, want defaults %#v for a detached run", prefs, want)
 	}

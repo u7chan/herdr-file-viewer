@@ -58,8 +58,9 @@ func run() error {
 		// display root so Herdr attributes the viewed directory to this pane.
 		Chdir: herdr.ChdirRoot,
 		Preferences: app.Preferences{
-			AppearanceMode: prefs.AppearanceMode,
-			IconBaseSet:    prefs.IconBaseSet,
+			AppearanceMode:  prefs.AppearanceMode,
+			IconBaseSet:     prefs.IconBaseSet,
+			TreePermissions: prefs.TreePermissions,
 			Actions: app.DefaultActions{
 				File:   prefs.ActionFile,
 				Folder: prefs.ActionFolder,

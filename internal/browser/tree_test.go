@@ -144,7 +144,7 @@ func TestApplyLoadDoesNotMutateInputEntries(t *testing.T) {
 
 func TestChildrenReturnsDefensiveShallowCopy(t *testing.T) {
 	root := newRootNode("/workspace/root")
-	child := newChildNode(root, "/workspace/root/child", "child", KindFile)
+	child := newChildNode(root, "/workspace/root/child", "child", KindFile, 0, false)
 	root.children = []*Node{child}
 
 	children := root.Children()
@@ -627,4 +627,59 @@ func absoluteFakePath(path string) string {
 		return filepath.Clean(path)
 	}
 	return filepath.Clean(absolute)
+}
+
+func TestApplyLoadCarriesEntryPermissionsOntoNodes(t *testing.T) {
+	rootPath := filepath.Join("workspace", "root")
+	fake := newFakeFileSystem()
+	fake.set(rootPath, []filesystem.Entry{
+		{Name: "private.env", Mode: 0, Perm: 0o600, HasPerm: true},
+		{Name: "unknown", Mode: 0},
+	})
+	tree := mustTree(t, rootPath, fake)
+
+	request, ok := tree.Expand(tree.Root())
+	if !ok {
+		t.Fatal("Expand(root) started no load")
+	}
+	if !tree.ApplyLoad(tree.Read(request)) {
+		t.Fatal("ApplyLoad(root) rejected result")
+	}
+
+	children := tree.Root().Children()
+	if len(children) != 2 {
+		t.Fatalf("children = %d, want 2", len(children))
+	}
+	mode, hasPerm := children[0].Permissions()
+	if !hasPerm || mode.Perm() != 0o600 {
+		t.Fatalf("private.env permissions = %v, %v; want 0600", mode, hasPerm)
+	}
+	if mode, hasPerm := children[1].Permissions(); hasPerm || mode != 0 {
+		t.Fatalf("unknown permissions = %v, %v; want unknown", mode, hasPerm)
+	}
+	if mode, hasPerm := tree.Root().Permissions(); hasPerm || mode != 0 {
+		t.Fatalf("root permissions = %v, %v; want unknown (the root is a location header)", mode, hasPerm)
+	}
+
+	// A reload reuses the node for the same path and kind, so the refreshed
+	// permission snapshot has to land on that reused node.
+	private := children[0]
+	fake.set(rootPath, []filesystem.Entry{
+		{Name: "private.env", Mode: 0, Perm: 0o644, HasPerm: true},
+		{Name: "unknown", Mode: 0},
+	})
+	requests := tree.Reload()
+	if len(requests) != 1 {
+		t.Fatalf("Reload() requests = %d, want 1", len(requests))
+	}
+	if !tree.ApplyLoad(tree.Read(requests[0])) {
+		t.Fatal("ApplyLoad(reload) rejected result")
+	}
+	reloaded := tree.Root().Children()[0]
+	if reloaded != private {
+		t.Fatal("reload replaced the node instead of reusing it")
+	}
+	if mode, hasPerm := reloaded.Permissions(); !hasPerm || mode.Perm() != 0o644 {
+		t.Fatalf("reloaded permissions = %v, %v; want the refreshed 0644", mode, hasPerm)
+	}
 }
