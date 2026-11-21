@@ -732,7 +732,7 @@ func TestFindHighlightRenderingComposesStylesAndTruncates(t *testing.T) {
 	status := browser.GitStatusModified
 	background := selectedStyle(false).GetBackground()
 	nameStyle := gitStatusStyle(status).Background(background)
-	row := selected.renderTreeRow(1, "prefix ", "icon", " file.go.go", status, false, 80)
+	row := selected.renderTreeRow(1, "prefix ", "icon", " file.go.go", "", status, false, 80)
 	if got := strings.Count(row, nameStyle.Underline(true).Render("go")); got != 2 {
 		t.Fatalf("highlighted name spans = %d, want 2: %q", got, row)
 	}
@@ -747,19 +747,19 @@ func TestFindHighlightRenderingComposesStylesAndTruncates(t *testing.T) {
 	}
 
 	ignored := Model{findHighlightQuery: "go"}
-	ignoredRow := ignored.renderTreeRow(1, "", "icon", " ignored.go", browser.GitStatusNone, true, 80)
+	ignoredRow := ignored.renderTreeRow(1, "", "icon", " ignored.go", "", browser.GitStatusNone, true, 80)
 	if !strings.Contains(ignoredRow, ignoredRowStyle.Underline(true).Render("go")) {
 		t.Fatalf("ignored match lost grey underline composition: %q", ignoredRow)
 	}
 
-	rootRow := selected.renderTreeRow(0, "", "icon", " root.go", browser.GitStatusNone, false, 80)
+	rootRow := selected.renderTreeRow(0, "", "icon", " root.go", "", browser.GitStatusNone, false, 80)
 	if strings.Contains(rootRow, lipgloss.NewStyle().Inline(true).Underline(true).Render("go")) {
 		t.Fatalf("root row is highlighted: %q", rootRow)
 	}
 
 	truncated := Model{selected: 1, findHighlightQuery: "match"}
 	for width := 0; width <= 12; width++ {
-		got := truncated.renderTreeRow(1, "  ", "icon", " match-at-the-boundary", browser.GitStatusNone, false, width)
+		got := truncated.renderTreeRow(1, "  ", "icon", " match-at-the-boundary", "", browser.GitStatusNone, false, width)
 		if actual := lipgloss.Width(got); actual > width {
 			t.Fatalf("width %d rendered width = %d, want <= %d: %q", width, actual, width, got)
 		}

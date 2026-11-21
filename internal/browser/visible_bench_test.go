@@ -60,7 +60,7 @@ func benchmarkSmallVisibleTree() (*Tree, int) {
 	root.loaded = true
 	tree := &Tree{root: root, visible: NewVisibleRows()}
 
-	directory := newChildNode(root, root.path+"/directory", "directory", KindDirectory)
+	directory := newChildNode(root, root.path+"/directory", "directory", KindDirectory, 0, false)
 	directory.expanded = true
 	directory.loaded = true
 	directory.children = make([]*Node, 0, 3)
@@ -71,6 +71,8 @@ func benchmarkSmallVisibleTree() (*Tree, int) {
 			directory.path+"/"+name,
 			name,
 			KindFile,
+			0,
+			false,
 		))
 	}
 	root.children = append(root.children, directory)
@@ -81,6 +83,8 @@ func benchmarkSmallVisibleTree() (*Tree, int) {
 			root.path+"/"+name,
 			name,
 			KindFile,
+			0,
+			false,
 		))
 	}
 
@@ -101,6 +105,8 @@ func benchmarkWideVisibleTree() (*Tree, int) {
 			root.path+"/"+name,
 			name,
 			KindFile,
+			0,
+			false,
 		))
 	}
 
@@ -117,7 +123,7 @@ func benchmarkDeepVisibleTree() (*Tree, int) {
 	parent := root
 	for level := 1; level <= depth; level++ {
 		name := "directory-" + strconv.Itoa(level)
-		child := newChildNode(parent, parent.path+"/"+name, name, KindDirectory)
+		child := newChildNode(parent, parent.path+"/"+name, name, KindDirectory, 0, false)
 		child.expanded = true
 		child.loaded = true
 		parent.children = []*Node{child}
@@ -125,6 +131,6 @@ func benchmarkDeepVisibleTree() (*Tree, int) {
 	}
 
 	name := "leaf"
-	parent.children = []*Node{newChildNode(parent, parent.path+"/"+name, name, KindFile)}
+	parent.children = []*Node{newChildNode(parent, parent.path+"/"+name, name, KindFile, 0, false)}
 	return tree, depth + 2
 }

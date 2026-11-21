@@ -24,6 +24,11 @@ type Preferences struct {
 	// closed folder, open folder, and unknown-file glyphs. Empty and unknown
 	// values fall back to the built-in font-awesome-solid set.
 	IconBaseSet string
+	// TreePermissions is the resolved tree.permissions value: "off",
+	// "numeric", or "full". It caps the permission column the tree renders;
+	// the pane width can still drop or narrow it. Empty and unknown values
+	// fall back to full.
+	TreePermissions string
 	// Actions carries the resolved default-action command strings; empty
 	// strings keep Ctrl+Enter a silent no-op and hide the Help rows.
 	Actions DefaultActions

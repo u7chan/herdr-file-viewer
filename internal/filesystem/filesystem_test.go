@@ -120,3 +120,75 @@ func TestLocalReadFileHeadFailsOnDirectory(t *testing.T) {
 		t.Fatal("ReadFileHead(directory) error = nil, want read error")
 	}
 }
+
+func TestLocalReadDirReportsPermissionsOnlyWhenAsked(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "private.env"), []byte("secret"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(directory, "shared"), 0o755); err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+	linkPath := filepath.Join(directory, "link")
+	if err := os.Symlink(filepath.Join(directory, "private.env"), linkPath); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	readers := []struct {
+		name string
+		read FileSystem
+		want bool
+	}{
+		{name: "plain", read: NewLocal(), want: false},
+		{name: "with permissions", read: NewLocalWithPermissions(), want: true},
+	}
+	for _, reader := range readers {
+		t.Run(reader.name, func(t *testing.T) {
+			capability, ok := reader.read.(PermissionReader)
+			if !ok {
+				t.Fatalf("reader %T does not implement PermissionReader", reader.read)
+			}
+			if got := capability.ReadsPermissions(); got != reader.want {
+				t.Fatalf("ReadsPermissions() = %v, want %v", got, reader.want)
+			}
+
+			entries, err := reader.read.ReadDir(directory)
+			if err != nil {
+				t.Fatalf("ReadDir() error = %v", err)
+			}
+			byName := make(map[string]Entry, len(entries))
+			for _, entry := range entries {
+				byName[entry.Name] = entry
+			}
+			if !reader.want {
+				for _, name := range []string{"private.env", "shared", "link"} {
+					if byName[name].HasPerm {
+						t.Fatalf("%s.HasPerm = true, want false from the type-only reader", name)
+					}
+				}
+				return
+			}
+
+			private := byName["private.env"]
+			if !private.HasPerm || private.Perm.Perm() != 0o600 {
+				t.Fatalf("private.env = %#v, want mode 0600", private)
+			}
+			if private.Mode.IsDir() || private.Perm.IsDir() {
+				t.Fatalf("private.env = %#v, want a regular file", private)
+			}
+			shared := byName["shared"]
+			if !shared.HasPerm || !shared.Perm.IsDir() || shared.Perm.Perm() != 0o755 {
+				t.Fatalf("shared = %#v, want directory mode 0755", shared)
+			}
+			// A symlink reports the link itself, so the permission bits are
+			// the link's own (0777 on Linux) and the type bit stays symlink.
+			link := byName["link"]
+			if !link.HasPerm || link.IsDirectory() {
+				t.Fatalf("link = %#v, want a symlink entry with a mode", link)
+			}
+			if link.Perm&fs.ModeSymlink == 0 {
+				t.Fatalf("link.Perm = %v, want the symlink type bit", link.Perm)
+			}
+		})
+	}
+}

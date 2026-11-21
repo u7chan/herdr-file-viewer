@@ -18,7 +18,8 @@ shows the full key reference from the tree or the preview with `h`.
 This is a read-only viewer used inside a Herdr pane. The tree supports lazy
 directory expansion, cell-aware single-line rendering, recoverable directory
 errors, symlink-as-entry handling, keyboard and mouse scrolling with visible
-scrollbar dragging, left-click selection/toggle, find navigation, root moves
+scrollbar dragging, an optional right-aligned permission column,
+left-click selection/toggle, find navigation, root moves
 that chdir with the displayed root (`C` / `Backspace`), a Git branch and
 status snapshot, OSC 52 path copying, and a Help popup. `Enter` opens a
 focused text preview pane with line numbers, syntax highlighting for
@@ -173,14 +174,15 @@ linked plugin: `~/.config/herdr/plugins/config/u7chan.file-viewer/`):
 {
   "appearance": { "mode": "auto" },
   "icons": { "base_set": "font-awesome-solid" },
+  "tree": { "permissions": "full" },
   "preview": { "wrap": false, "show_whitespace": false },
   "actions": { "file": "zed <filepath>", "folder": "open <dirpath>" }
 }
 ```
 
 Every key is optional; missing keys and empty strings resolve to the
-built-in defaults (`auto`, `font-awesome-solid`, both preview toggles off,
-and no default actions). The file is read once at process start, so hand
+built-in defaults (`auto`, `font-awesome-solid`, `full`, both preview toggles
+off, and no default actions). The file is read once at process start, so hand
 edits apply on the next launch, and unknown keys or sections are ignored
 when reading. On the first run inside a Herdr pane the file is created with
 the default document (including an empty `actions` section) so the
@@ -193,6 +195,7 @@ dropped at the first toggle save. Deleting the file resets every preference
 | --- | --- | --- | --- |
 | `appearance.mode` | Appearance palette mode | `auto`, `light`, `dark` | `auto` |
 | `icons.base_set` | Folder / unknown-file glyph set | `font-awesome-solid`, `font-awesome-outline`, `material`, `codicon` | `font-awesome-solid` |
+| `tree.permissions` | Widest permission column the tree may show at the right of each row | `off`, `numeric`, `full` | `full` |
 | `preview.wrap` | Initial `w` toggle state in new preview panes | `true`, `false` | `false` |
 | `preview.show_whitespace` | Initial `s` toggle state in new preview panes | `true`, `false` | `false` |
 | `actions.file` | Default action command for files (`Ctrl+Enter`); `<filepath>` is replaced by the selected file path | any shell command string | unset |
@@ -204,6 +207,15 @@ response.
 - `icons.base_set`: switches only the closed folder, open folder, and
 unknown-file glyphs; everything else (extension icons, symlink, HOME, Git,
 colors) is unchanged.
+- `tree.permissions`: `off` hides the column; `numeric` shows the chmod
+  octal number only; `full` adds the ten-cell `ls -l` text in front of it.
+  The value is a cap: the pane width decides the rendered form, because the
+  column is dropped instead of squeezing the name. The column reads the
+  entry's own `lstat` mode (a symlink reports the link, not its target), so
+  it needs a directory read that collects permissions; only then does a
+  directory read cost one extra `lstat` per entry. The mode is a snapshot
+  taken by the read, so `r` refreshes permissions changed outside the
+  viewer.
 - `preview.wrap` / `preview.show_whitespace`: toggling in a preview pane
 saves the changed item immediately, so a later preview pane opens with the
 last used value; already-open previews are not live-synced.
@@ -305,6 +317,15 @@ hints when relevant, and a brief toast (`Reloaded`) appears for a few
 seconds after `r`. The remaining shortcuts (`/`, `n`, `N`, `r`, `C`,
 `Backspace`, `w`, `s`) stay bound and are listed in the Help popup. Very
 small panes omit dividers when there is no room for them.
+The right end of each tree row shows the entry's permissions when the
+`tree.permissions` preference and the pane width allow it: the `ls -l` text
+and/or the chmod number, right aligned so the octal digits of every row line
+up in one column (`-rw-------  600`). The special-bit digit appears only when
+a setuid, setgid, or sticky bit is set, so an ordinary file reads `644`
+rather than `0644`. The column appears at 21 content cells as the number
+alone, and grows to the `ls -l` text from 36 content cells. An entry whose
+mode is unknown leaves the column blank, and the pinned root row is a
+location header, so its permission cells stay blank as well.
 The divider and scrollbar use portable box-drawing/block glyphs rather than a
 Nerd Font-specific glyph; the file tree icons remain Nerd Font glyphs.
 

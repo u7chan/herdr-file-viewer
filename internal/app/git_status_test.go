@@ -231,7 +231,7 @@ func TestRenderTreeRowPaintsTheLetterColumnForRepositories(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			row := m.renderTreeRow(2, "", "icon", "file.go", test.status, false, 20)
+			row := m.renderTreeRow(2, "", "icon", "file.go", "", test.status, false, 20)
 			plain := ansi.Strip(row)
 			if !strings.HasSuffix(plain, test.letter) {
 				t.Fatalf("row = %q, want letter %q as the final cell", plain, test.letter)
@@ -244,7 +244,7 @@ func TestRenderTreeRowPaintsTheLetterColumnForRepositories(t *testing.T) {
 
 	// The reserved column stays blank on statusless rows so every line keeps
 	// the same truncate width.
-	row := m.renderTreeRow(2, "", "icon", "clean.go", browser.GitStatusNone, false, 20)
+	row := m.renderTreeRow(2, "", "icon", "clean.go", "", browser.GitStatusNone, false, 20)
 	plain := ansi.Strip(row)
 	if strings.HasSuffix(plain, "M") || strings.HasSuffix(plain, "?") {
 		t.Fatalf("statusless row = %q, want blank letter cell", plain)
@@ -259,7 +259,7 @@ func TestRenderTreeRowGreysOutIgnoredRows(t *testing.T) {
 	completeInitialLoad(t, model)
 
 	m := Model{tree: model.tree, selected: 9}
-	row := m.renderTreeRow(2, "", "icon", "ignored.log", browser.GitStatusNone, true, 20)
+	row := m.renderTreeRow(2, "", "icon", "ignored.log", "", browser.GitStatusNone, true, 20)
 	if got := strings.Count(row, "38;5;245"); got < 2 {
 		t.Fatalf("ignored row = %q, want grey icon and name (245) in both spans", row)
 	}
@@ -269,12 +269,12 @@ func TestRenderTreeRowGreysOutIgnoredRows(t *testing.T) {
 
 	// The selected-row background still applies on top of the grey.
 	selected := Model{tree: model.tree, selected: 0}
-	row = selected.renderTreeRow(0, "  ", "icon", "ignored.log", browser.GitStatusNone, true, 20)
+	row = selected.renderTreeRow(0, "  ", "icon", "ignored.log", "", browser.GitStatusNone, true, 20)
 	if !strings.Contains(row, "48;5;238") {
 		t.Fatalf("selected ignored row = %q, want selection background", row)
 	}
 
-	row = m.renderTreeRow(2, "", "icon", "normal.go", browser.GitStatusNone, false, 20)
+	row = m.renderTreeRow(2, "", "icon", "normal.go", "", browser.GitStatusNone, false, 20)
 	if strings.Contains(row, "38;5;245") {
 		t.Fatalf("clean row = %q, must not be grey", row)
 	}
